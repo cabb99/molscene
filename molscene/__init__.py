@@ -2,6 +2,7 @@
 
 # Add imports here
 from .molscene import *
+from .Scene import Scene
 
 
 from ._version import __version__
