@@ -23,6 +23,29 @@ _protein_residues = {'ALA': 'A', 'CYS': 'C', 'ASP': 'D', 'GLU': 'E',
 
 
 class Scene(pandas.DataFrame):
+    
+    _columns = {'recname': 'Record name',
+                'serial': 'Atom serial number',
+                'name': 'Atom name',
+                'altLoc': 'Alternate location indicator',
+                'resName': 'Residue name',
+                'chainID': 'Chain identifier',
+                'resSeq': 'Residue sequence number',
+                'iCode': 'Code for insertion of residues',
+                'x': 'Orthogonal coordinates for X in Angstroms',
+                'y': 'Orthogonal coordinates for Y in Angstroms',
+                'z': 'Orthogonal coordinates for Z in Angstroms',
+                'occupancy': 'Occupancy',
+                'tempFactor': 'Temperature factor',
+                'element': 'Element symbol',
+                'charge': 'Charge on the atom',
+                'model': 'Model number',
+                'res_index': 'Residue index',
+                'chain_index': 'Chain index',
+                'molecule': 'Molecule name',
+                'resname': 'Residue name'}
+    
+    
     # Initialization
     def __init__(self, particles, altLoc='A', model=1, **kwargs):
         """Create an empty scene from particles.
@@ -57,6 +80,8 @@ class Scene(pandas.DataFrame):
             self['occupancy'] = [1.0] * len(self)
         if 'tempFactor' not in self.columns:
             self['tempFactor'] = [1.0] * len(self)
+        if 'resName' not in self.columns:
+            self['resName'] = [''] * len(self)
 
         # Map chain index to index
         if 'chain_index' not in self.columns:
@@ -73,7 +98,7 @@ class Scene(pandas.DataFrame):
                 resmap += [residues.replace(dict(zip(unique_residues, range(len(unique_residues))))).astype(int)]
             self['res_index'] = pandas.concat(resmap)
 
-        self['resname']=self['resName']
+        # self['resname']=self['resName']
 
         # Add metadata
         for attr, value in kwargs.items():
@@ -273,7 +298,7 @@ class Scene(pandas.DataFrame):
                                      residue.name, chain.id, int(residue.id), '',
                                      pos[0], pos[1], pos[2], 0, 0,
                                      atom.element.symbol, '']))]
-        atom_list = pandas.DataFrame(data[-1])
+        atom_list = pandas.DataFrame(data)
         atom_list = atom_list[cols]
         atom_list.index = atom_list['serial']
         return cls(atom_list, **kwargs)
@@ -678,15 +703,19 @@ class Scene(pandas.DataFrame):
 
     @property
     def _constructor(self):
-        return Scene
-
-    def __getattr__(self, attr):
-        if '_meta' in self.__dict__ and attr in self._meta:
-            return self._meta[attr]
-        elif attr in self.columns:
-            return self[attr]
+        # Check if the DataFrame contains all the required columns
+        if all(col in self.columns for col in self._columns.keys()):
+            return Scene
         else:
-            raise AttributeError(f"type object {str(self.__class__)} has no attribute {str(attr)}")
+            return pandas.DataFrame
+
+    # def __getattr__(self, attr):
+    #     if '_meta' in self.__dict__ and attr in self._meta:
+    #         return self._meta[attr]
+    #     elif attr in self.columns:
+    #         return self[attr]
+    #     else:
+    #         raise AttributeError(f"type object {str(self.__class__)} has no attribute {str(attr)}")
         
     # def __getattr__(self, attr):
     #     # Safely retrieve _meta without triggering __getattr__ again.
@@ -701,6 +730,21 @@ class Scene(pandas.DataFrame):
     #         return self[attr]
 
     #     raise AttributeError(f"{self.__class__.__name__} has no attribute {attr}")
+
+    def __getattribute__(self, name):
+        """
+        Override attribute lookup only to provide access to items stored in _meta.
+        All normal attributes (including methods, and DataFrame properties like 'columns')
+        are obtained via the standard mechanism.
+        """
+        try:
+            return super().__getattribute__(name)
+        except AttributeError:
+            # If not found normally, check if it is stored in _meta.
+            _meta = object.__getattribute__(self, '_meta') if '_meta' in self.__dict__ else {}
+            if name in _meta:
+                return _meta[name]
+            raise AttributeError(f"{self.__class__.__name__} has no attribute {name}")
 
     def __setattr__(self, attr, value):
         # Define a set of attributes that should be stored in _meta

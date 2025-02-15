@@ -53,15 +53,15 @@ def test_from_cif(ciffile):
     atom = s.loc[1576]
     #print(atom)
     assert atom['serial'] == 1577
-    assert atom['resSeq'] == 1170
+    assert atom['resSeq'] == 170
     assert atom['name'] == 'SD'
     assert atom['resName'] == 'MET'
     assert atom['chainID'] == 'A'
     assert atom['altLoc'] == 'G'
 
 
-def test_select():
-    s = Scene.from_pdb(f'coarseactin/tests/data/1zir.pdb')
+def test_select(pdbfile):
+    s = Scene.from_pdb(pdbfile)
     # print(s['altLoc'].unique())
     assert len(s.select(altLoc=['A','C','E','G'])) == 1613
 
@@ -72,36 +72,38 @@ def test_split_models():
     pass
 
 
+import tempfile
+
 class Test_Read_Write():
     def _convert(self, reader, writer, mol):
         if reader == 'pdb':
-            s1 = Scene.from_pdb(f'coarseactin/tests/data/{mol}.pdb')
+            s1 = Scene.from_pdb(f'molscene/data/{mol}.pdb')
         elif reader == 'cif':
-            s1 = Scene.from_cif(f'coarseactin/tests/data/{mol}.cif')
+            s1 = Scene.from_cif(f'molscene/data/{mol}.cif')
         elif reader == 'gro':
-            s1 = Scene.from_gro(f'coarseactin/tests/data/{mol}.gro')
+            s1 = Scene.from_gro(f'molscene/data/{mol}.gro')
         elif reader == 'fixPDB_pdb':
-            s1 = Scene.from_fixPDB(pdbfile=f'coarseactin/tests/data/{mol}.pdb')
+            s1 = Scene.from_fixPDB(pdbfile=f'molscene/data/{mol}.pdb')
         elif reader == 'fixPDB_cif':
-            s1 = Scene.from_fixPDB(pdbxfile=f'coarseactin/tests/data/{mol}.cif')
+            s1 = Scene.from_fixPDB(pdbxfile=f'molscene/data/{mol}.cif')
         elif reader == 'fixPDB_pdbid':
             s1 = Scene.from_fixPDB(pdbid=f'{mol}')
 
         if writer == 'pdb':
-            fname = f'coarseactin/tests/scratch/{reader}_{writer}_{mol}.pdb'
+            fname = f'molscene/tests/scratch/{reader}_{writer}_{mol}.pdb'
             s1.write_pdb(fname)
             s2 = Scene.from_pdb(fname)
         elif writer == 'cif':
-            fname = f'coarseactin/tests/scratch/{reader}_{writer}_{mol}.cif'
+            fname = f'molscene/tests/scratch/{reader}_{writer}_{mol}.cif'
             s1.write_cif(fname)
             s2 = Scene.from_cif(fname)
         elif writer == 'gro':
-            fname = f'coarseactin/tests/scratch/{reader}_{writer}_{mol}.gro'
+            fname = f'molscene/tests/scratch/{reader}_{writer}_{mol}.gro'
             s1.write_gro(fname)
             s2 = Scene.from_gro(fname)
 
-        s1.to_csv('coarseactin/tests/scratch/s1.csv')
-        s2.to_csv('coarseactin/tests/scratch/s2.csv')
+        s1.to_csv('molscene/tests/scratch/s1.csv')
+        s2.to_csv('molscene/tests/scratch/s2.csv')
         print(len(s1))
         assert (len(s1) == len(s2)), f"The number of particles before reading ({len(s1)}) and after writing ({len(s2)})" \
                                      f" are different.\nCheck the file: {fname}"
@@ -127,50 +129,6 @@ class Test_Read_Write():
     #        yield self._cif_to_cif, f'{mol}.cif'
 
 
-# def test_write_read_cif():
-#    for mol in ['1r70.cif', '1zbl.cif', '1zir.cif', '3wu2.cif', '4v99.cif']:
-#        s1 = Scene.from_cif(f'data/{mol}')
-#        s1.write_cif(f'scratch/{mol}')
-#        s2 = Scene.from_cif(f'data/{mol}')
-#        assert len(s1) == len(s2)
-
-
-def test_write_read_pdb2():
-    assert True
-
-
-def test_write_read_pdb3():
-    assert True
-
-
-def test_evens():
-    for i in range(0, 5):
-        yield check_even, i * 2, i * 3
-
-
-def check_even(n, nn):
-    assert n % 2 == 0 or nn % 2 == 0
-
-
-def setup_module(module):
-    print("")  # this is to get a newline after the dots
-    print("setup_module before anything in this file")
-
-
-def teardown_module(module):
-    print("teardown_module after everything in this file")
-
-
-def my_setup_function():
-    print("my_setup_function")
-
-
-def my_teardown_function():
-    print("my_teardown_function")
-
-
-def multiply(a, b):
-    return a * b
 
 
 if __name__ == '__main__':
