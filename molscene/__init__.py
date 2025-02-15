@@ -1,7 +1,6 @@
 """PDB file parsing using pandas DataFrames"""
 
 # Add imports here
-from .molscene import *
 from .Scene import Scene
 
 
