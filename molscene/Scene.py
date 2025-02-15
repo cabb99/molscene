@@ -5,13 +5,7 @@ import io
 """
 Python library to allow easy handling of coordinate files for molecular dynamics using pandas DataFrames.
 """
-if __name__ == "__main__":
-    import utils
-else:
-    try:
-        from . import utils
-    except ImportError:
-        import utils
+from . import utils
 
 __author__ = 'Carlos Bueno'
 
