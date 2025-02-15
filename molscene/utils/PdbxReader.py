@@ -341,17 +341,12 @@ class PdbxReader(object):
         #                                     outside of this regex.
         mmcifRe = re.compile(
             r"(?:"
-
-             "(?:_(.+?)[.](\S+))"               "|"  # _category.attribute
-
-             "(?:['](.*?)(?:[']\s|[']$))"       "|"  # single quoted strings
-             "(?:[\"](.*?)(?:[\"]\s|[\"]$))"    "|"  # double quoted strings             
-
-             "(?:\s*#.*$)"                      "|"  # comments (dumped)
-
-             "(\S+)"                                 # unquoted words
-
-             ")")
+            r"(?:_(.+?)[.](\S+))"               "|"  # _category.attribute
+            r"(?:['](.*?)(?:[']\s|[']$))"       "|"  # single quoted strings
+            r"(?:[\"](.*?)(?:[\"]\s|[\"]$))"    "|"  # double quoted strings             
+            r"(?:\s*#.*$)"                      "|"  # comments (dumped)
+            r"(\S+)"                                 # unquoted words
+            r")")
 
         fileIter = iter(ifh)
 
