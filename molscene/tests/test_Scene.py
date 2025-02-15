@@ -71,6 +71,14 @@ def test_split_models():
     # TODO: define how to split complex models
     pass
 
+def test_wrong_init():
+    with pytest.raises(ValueError):
+        s = Scene(1)
+    with pytest.raises(TypeError):
+        s = Scene([0,1,2,3])
+    with pytest.raises(TypeError):
+        s = Scene([[0,1,2,3],[4,5,6,7]])
+
 
 import tempfile
 
