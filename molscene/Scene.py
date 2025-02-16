@@ -48,13 +48,14 @@ class Scene(pandas.DataFrame):
         # Add metadata dictionary
         self.__dict__['_meta'] = {}
 
-        if 'x' in self.columns:
-            if 'y' not in self.columns or 'z' not in self.columns:
-                raise TypeError('E')
+        if all([col in self.columns for col in ['x', 'y', 'z']]):
+            pass
+        elif any([col in self.columns for col in ['x', 'y', 'z']]):
+            raise ValueError(f"Incomplete coordinates, missing columns: {set(['x', 'y', 'z']) - set(self.columns)}")
         elif len(self.columns) == 3:
             self.columns=['x', 'y', 'z']
         else:
-            raise TypeError("Incorrect particle format")
+            raise ValueError("Incorrect particle format")
         
         if 'chainID' not in self.columns:
             self['chainID'] = ['A'] * len(self)
@@ -259,6 +260,13 @@ class Scene(pandas.DataFrame):
         hetero-atoms and adding missing hydrogens. The input is a pdb file location,
         the output is a fixer object, which is a pdb in the openawsem format."""
         import pdbfixer
+
+        filename=str(filename) if filename is not None else None
+        pdbfile=str(pdbfile) if pdbfile is not None else None
+        pdbxfile=str(pdbxfile) if pdbxfile is not None else None
+        url=str(url) if url is not None else None
+        pdbid=str(pdbid) if pdbid is not None else None
+
         fixer = pdbfixer.PDBFixer(filename=filename, pdbfile=pdbfile, pdbxfile=pdbxfile, url=url, pdbid=pdbid)
         fixer.findMissingResidues()
         chains = list(fixer.topology.chains())
@@ -665,7 +673,11 @@ class Scene(pandas.DataFrame):
         return new
 
     def __repr__(self):
-        return f'<Scene ({len(self)} particles)>\n{super().__repr__()}'
+        try:
+            return f'<Scene ({len(self)})>\n{super().__repr__()}'
+        except AttributeError:
+            return '<Scene (Uninitialized)>'
+
 
     def __add__(self, other):
         if isinstance(other, self.__class__):
@@ -741,12 +753,26 @@ class Scene(pandas.DataFrame):
             raise AttributeError(f"{self.__class__.__name__} has no attribute {name}")
 
     def __setattr__(self, attr, value):
-        # Define a set of attributes that should be stored in _meta
+        # Always set _meta normally.
+        if attr == '_meta':
+            super().__setattr__(attr, value)
+            return
+
+        # If the attribute name is one of the DataFrame's columns, assign to that column.
+        try:
+            columns = super().__getattribute__('columns')
+        except AttributeError:
+            columns = None
+
+        if columns is not None and attr in columns:
+            self[attr] = value
+            return
+
+        # If it's a built-in DataFrame attribute, set it normally.
         if hasattr(pandas.DataFrame, attr):
-            # If it's a DataFrame attribute, set it normally
             super().__setattr__(attr, value)
         else:
-            # Otherwise, store it in _meta
+            # Otherwise, store it in _meta.
             self._meta[attr] = value
 
 
