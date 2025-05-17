@@ -3,8 +3,14 @@ from molscene import Scene
 from pathlib import Path
 import pandas as pd
 import numpy as np
-import tempfile
 import os
+import warnings
+import pytest
+
+
+if os.environ.get('MOLSCENE_FAIL_ON_WARNINGS', '').lower() in {'1', 'true', 'yes'}:
+    pytestmark = pytest.mark.filterwarnings('error')
+    warnings.simplefilter('error')
 
 # Utility to get a test file path (pytest tmp_path by default, scratch if env set)
 def get_test_file_path(tmp_path, suffix):
