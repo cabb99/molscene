@@ -755,6 +755,25 @@ class Scene(pandas.DataFrame):
         lines += "_atom_site.pdbx_PDB_model_num\n"
 
         pdbx_table['line'] = 'ATOM'
+
+        def cif_quote(val):
+            if val is np.nan:
+                return '.'
+            if not isinstance(val, str):
+                val = str(val)
+            if "'" in val and '"' in val:
+                # If both quotes are present (unusual), use double quotes and replace double quotes with single quotes
+                return '"' + val.replace('"', "'") + '"'
+            elif "'" in val:
+                return '"' + val + '"'
+            elif '"' in val:
+                return "'" + val + "'"
+            elif any(c.isspace() for c in val) or val == '' or val.startswith('#') or val.startswith(';'):
+                #quote the string if it contains spaces or is empty
+                return '"' + val + '"'
+            else:
+                return val
+
         for col in ['serial',
                     'name', 'resName', 'chainID', 'resSeq', 'iCode',
                     'name', 'resName', 'chainID', 'resSeq','iCode',
@@ -762,7 +781,7 @@ class Scene(pandas.DataFrame):
                     'occupancy', 'tempFactor',
                     'element', 'charge', 'model']:
             pdbx_table['line'] += " "
-            pdbx_table['line'] += pdbx_table[col].astype(str)
+            pdbx_table['line'] += pdbx_table[col].apply(cif_quote)
         pdbx_table['line'] += '\n'
         lines += ''.join(pdbx_table['line'])
         lines += '#\n'
