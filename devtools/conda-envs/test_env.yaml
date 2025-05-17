@@ -1,18 +1,18 @@
-name: test
+name: molscene-test
 channels:
-
+  - conda-forge
   - defaults
 dependencies:
-    # Base depends
   - python
   - pip
-
+  - numpy
+  - pandas
     # Testing
   - pytest
   - pytest-cov
+  - pytest-xdist
   - codecov
-
-    # Pip-only installs
+  # Pip-only installs
   #- pip:
   #  - codecov
 
