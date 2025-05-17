@@ -261,6 +261,45 @@ def test_iterframes(scene_with_trajectory):
         count += 1
     assert count == scene.n_frames, "iterframes() should yield exactly n_frames scenes."
 
+def test_distance_map():
+    import numpy as np
+    from molscene import Scene
+
+    # Simple 3-point triangle: (0,0,0), (1,0,0), (0,1,0)
+    coords = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]])
+    s = Scene(coords)
+
+    # Dense distance map
+    dense = s.distance_map(threshold=None)
+    assert dense.shape == (3, 3)
+    np.testing.assert_allclose(np.diag(dense), 0)
+    np.testing.assert_allclose(dense[0, 1], 1)
+    np.testing.assert_allclose(dense[0, 2], 1)
+    np.testing.assert_allclose(dense[1, 2], np.sqrt(2))
+
+    # Sparse distance map with threshold=1.01
+    pairs, dists = s.distance_map_sparse(threshold=1.01)
+    assert pairs.shape[1] == 2
+    # Confirm all distances are ≤ threshold
+    assert np.all(dists <= 1.01)
+    # Confirm exact expected pairs present
+    expected_pairs = {(0, 1), (1, 0), (0, 2), (2, 0)}
+    actual_pairs = {tuple(p) for p in pairs}
+    assert expected_pairs <= actual_pairs  # all expected pairs must be found
+    np.testing.assert_allclose(dists, 1.0)
+
+    # Sparse distance map with threshold=2.0
+    pairs, dists = s.distance_map_sparse(threshold=2.0)
+    assert pairs.shape[1] == 2
+    assert np.all(dists <= 2.0)
+    # Should include (1,2) and (2,1) now
+    expected_pairs = {(0, 1), (1, 0), (0, 2), (2, 0), (1, 2), (2, 1)}
+    actual_pairs = {tuple(p) for p in pairs}
+    assert expected_pairs <= actual_pairs
+    # Confirm that the only distances present are the ones we expect
+    expected_dists = [1.0, 1.0, 1.0, 1.0, np.sqrt(2), np.sqrt(2)]
+    np.testing.assert_allclose(sorted(dists), sorted(expected_dists))
+
 
 if __name__ == '__main__':
     pass

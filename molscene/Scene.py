@@ -1,11 +1,18 @@
-import pandas
-import numpy as np
-import io
-
 """
 Python library to allow easy handling of coordinate files for molecular dynamics using pandas DataFrames.
 """
+
+
+import pandas
+import numpy as np
+import io
+from typing import Union, Tuple
 from . import utils
+import re
+from scipy.spatial import cKDTree, distance
+
+
+
 
 __author__ = 'Carlos Bueno'
 
@@ -354,56 +361,6 @@ class Scene(pandas.DataFrame):
 
         return cls(pdb_atoms, **kwargs)
 
-    # @classmethod
-    # def from_cif(cls, file, **kwargs):
-    #     _cif_pdb_rename = {'id': 'serial',
-    #                        'label_atom_id': 'name',
-    #                        'label_alt_id': 'altLoc',
-    #                        'label_comp_id': 'resName',
-    #                        'label_asym_id': 'chainID',
-    #                        'label_seq_id': 'resSeq',
-    #                        'pdbx_PDB_ins_code': 'iCode',
-    #                        'Cartn_x': 'x',
-    #                        'Cartn_y': 'y',
-    #                        'Cartn_z': 'z',
-    #                        'occupancy': 'occupancy',
-    #                        'B_iso_or_equiv': 'tempFactor',
-    #                        'type_symbol': 'element',
-    #                        'pdbx_formal_charge': 'charge',
-    #                        'pdbx_PDB_model_num': 'model'}
-
-    #     data = []
-    #     with open(file) as f:
-    #         reader = utils.PdbxReader(f)
-    #         reader.read(data)
-    #     block = data[0]
-    #     atom_data = block.getObj('atom_site')
-    #     cif_atoms = pandas.DataFrame([atom_data.getFullRow(i) for i in range(atom_data.getRowCount())],
-    #                                  columns=atom_data.getAttributeList(),
-    #                                  index=range(atom_data.getRowCount()))
-    #     # Rename columns to pdb convention
-    #     cif_atoms = cif_atoms.rename(_cif_pdb_rename, axis=1)
-    #     for col in cif_atoms.columns:
-    #         try:
-    #             cif_atoms[col] = cif_atoms[col].astype(float)
-    #             if ((cif_atoms[col].astype(int) - cif_atoms[col]) ** 2).sum() == 0:
-    #                 cif_atoms[col] = cif_atoms[col].astype(int)
-    #             continue
-    #         except ValueError:
-    #             pass
-
-    #     cif_atoms['serial'] = pandas.to_numeric(cif_atoms['serial'], errors='coerce').fillna(0).astype(int)
-    #     cif_atoms['resSeq'] = pandas.to_numeric(cif_atoms['resSeq'], errors='coerce').fillna(0).astype(int)
-    #     cif_atoms['x'] = pandas.to_numeric(cif_atoms['x'], errors='coerce').fillna(0.0)
-    #     cif_atoms['y'] = pandas.to_numeric(cif_atoms['y'], errors='coerce').fillna(0.0)
-    #     cif_atoms['z'] = pandas.to_numeric(cif_atoms['z'], errors='coerce').fillna(0.0)
-    #     cif_atoms['occupancy'] = pandas.to_numeric(cif_atoms['occupancy'], errors='coerce').fillna(1.0)
-    #     cif_atoms['tempFactor'] = pandas.to_numeric(cif_atoms['tempFactor'], errors='coerce').fillna(1.0)
-    #     cif_atoms['charge'] = pandas.to_numeric(cif_atoms['tempFactor'], errors='coerce').fillna(0.0)
-
-
-    #     return cls(cif_atoms, **kwargs)
-    
     @classmethod
     def from_cif(cls, file_path, **kwargs):
         """
@@ -416,7 +373,6 @@ class Scene(pandas.DataFrame):
             list: List of parsed atom data rows.
         """
        
-        import re
         atom_data = []
         atom_header = []
         in_atom_section = False
@@ -636,7 +592,6 @@ class Scene(pandas.DataFrame):
 
         # Override chain names if molecule is present
         if 'molecule' in pdb_table:
-            import string
             cc = utils.chain_name_generator(format='pdb')
             molecules = self['molecule'].unique()
             cc_d = dict(zip(molecules, cc))
@@ -930,6 +885,50 @@ class Scene(pandas.DataFrame):
         new = self.copy()
         new.at[:, ['x', 'y', 'z']] = self.get_coordinates().dot(other)
         return new
+
+    def distance_map(self, threshold=None) -> Union[np.ndarray, tuple]:
+        """
+        Returns a distance map of the Scene.
+        If threshold is None, returns a dense n×n distance matrix.
+        If threshold is a float, returns a sparse representation of the distances
+        (row_idx, col_idx, dist_vals) for all pairs of atoms with distance ≤ threshold.
+        """
+        if threshold is None:
+            return self.distance_map_dense()
+        else:
+            return self.distance_map_sparse(threshold)
+    
+    def distance_map_dense(self) -> np.ndarray:
+        """
+        Dense n×n distance matrix.
+        Equivalent to your original, but via pdist/squareform for speed.
+        """
+        coords = self.get_coordinates().to_numpy()
+        return distance.squareform(distance.pdist(coords))
+
+
+    def distance_map_sparse(self, threshold: float) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Fast, memory-light “sparse” distances ≤ threshold.
+        Returns:
+            - pairs: (M, 2) array of index pairs [i, j]
+            - dists: (M,) array of corresponding distances
+        """
+        if threshold is None:
+            raise ValueError("Must supply a threshold for sparse distance_map")
+
+        coords = self.get_coordinates().to_numpy()
+        tree = cKDTree(coords)
+        pairs = tree.query_pairs(threshold, output_type='ndarray')  # shape (N, 2)
+
+        diffs = coords[pairs[:, 0]] - coords[pairs[:, 1]]
+        dists = np.linalg.norm(diffs, axis=1)
+
+        # symmetric pairs: stack (i,j) and (j,i) as rows
+        pairs_sym = np.vstack([pairs, pairs[:, ::-1]])  # shape (2N, 2)
+        dists_sym = np.tile(dists, 2)
+
+        return pairs_sym, dists_sym
 
     def __repr__(self):
         try:
