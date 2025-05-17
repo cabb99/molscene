@@ -7,6 +7,7 @@ dependencies:
   - pip
   - numpy
   - pandas
+  - pdbfixer
     # Testing
   - pytest
   - pytest-cov
