@@ -122,7 +122,7 @@ class Scene(pandas.DataFrame):
         # Create an integer index for the chains
         if 'chain_index' not in self.columns:
             chain_map = {b: a for a, b in enumerate(self['chainID'].unique())}
-            self['chain_index'] = self['chainID'].replace(chain_map).astype(int)
+            self['chain_index'] = self['chainID'].map(chain_map).astype(int)
 
         # Create an integer index for the residues
         if 'res_index' not in self.columns:
@@ -138,7 +138,7 @@ class Scene(pandas.DataFrame):
             key_to_index = dict(zip(unique_keys, range(len(unique_keys))))
 
             # Map each residue key to its index
-            self['res_index'] = residue_keys.replace(key_to_index).astype(int)
+            self['res_index'] = residue_keys.map(key_to_index).astype(int)
 
         # Create an integer index for the atoms
         if 'atom_index' not in self.columns:
