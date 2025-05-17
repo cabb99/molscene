@@ -3,6 +3,17 @@ from molscene import Scene
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import tempfile
+import os
+
+# Utility to get a test file path (pytest tmp_path by default, scratch if env set)
+def get_test_file_path(tmp_path, suffix):
+    if os.environ.get('MOLSCENE_TEST_SCRATCH', '').lower() in {'1', 'true', 'yes'}:
+        scratch_dir = Path('molscene/tests/scratch')
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        return scratch_dir / suffix
+    else:
+        return tmp_path / suffix
 
 @pytest.fixture
 def pdbfile():
@@ -147,7 +158,7 @@ def test_set_coordinates(pdbfile):
 
 
 class Test_Read_Write():
-    def _convert(self, reader, writer, mol):
+    def _convert(self, reader, writer, mol, tmp_path):
         if reader == 'pdb':
             s1 = Scene.from_pdb(f'molscene/data/{mol}.pdb')
         elif reader == 'cif':
@@ -162,43 +173,29 @@ class Test_Read_Write():
             s1 = Scene.from_fixPDB(pdbid=f'{mol}')
 
         if writer == 'pdb':
-            fname = f'molscene/tests/scratch/{reader}_{writer}_{mol}.pdb'
+            fname = get_test_file_path(tmp_path, f'{reader}_{writer}_{mol}.pdb')
             s1.write_pdb(fname)
             s2 = Scene.from_pdb(fname)
         elif writer == 'cif':
-            fname = f'molscene/tests/scratch/{reader}_{writer}_{mol}.cif'
+            fname = get_test_file_path(tmp_path, f'{reader}_{writer}_{mol}.cif')
             s1.write_cif(fname)
             s2 = Scene.from_cif(fname)
         elif writer == 'gro':
-            fname = f'molscene/tests/scratch/{reader}_{writer}_{mol}.gro'
+            fname = get_test_file_path(tmp_path, f'{reader}_{writer}_{mol}.gro')
             s1.write_gro(fname)
             s2 = Scene.from_gro(fname)
 
-        s1.to_csv('molscene/tests/scratch/s1.csv')
-        s2.to_csv('molscene/tests/scratch/s2.csv')
+        s1.to_csv(get_test_file_path(tmp_path, 's1.csv'))
+        s2.to_csv(get_test_file_path(tmp_path, 's2.csv'))
         print(len(s1))
         assert (len(s1) == len(s2)), f"The number of particles before reading ({len(s1)}) and after writing ({len(s2)})" \
                                      f" are different.\nCheck the file: {fname}"
 
-    def test_convert(self):
-        for reader in ['pdb', 'cif']:  # ,'fixPDB_pdb','fixPDB_cif','fixPDB_pdbid']:
-            for writer in ['pdb', 'cif']:
-                for mol in ['1r70', '1zbl', '1zir']:
-                    self._convert(reader, writer, mol)
-
-    def test_pdb2pdb(self):
-        for mol in ['1r70', '1zbl', '1zir', '3wu2']:
-            yield self._convert, 'pdb', 'pdb', mol
-
-    # def _cif_to_cif(self, mol):
-    #    s1 = Scene.from_cif(f'data/{mol}')
-    #    s1.write_cif(f'scratch/{mol}')
-    #    s2 = Scene.from_cif(f'data/{mol}')
-    #    assert len(s1) == len(s2)
-
-    # def test_cif(self):
-    #    for mol in ['1r70', '1zbl', '1zir', '3wu2']:
-    #        yield self._cif_to_cif, f'{mol}.cif'
+    @pytest.mark.parametrize('reader', ['pdb', 'cif'])
+    @pytest.mark.parametrize('writer', ['pdb', 'cif'])
+    @pytest.mark.parametrize('mol', ['1r70', '1zbl', '1zir'])
+    def test_convert(self, reader, writer, mol, tmp_path):
+        self._convert(reader, writer, mol, tmp_path)
 
 
 @pytest.fixture
