@@ -15,6 +15,47 @@ _protein_residues = {'ALA': 'A', 'CYS': 'C', 'ASP': 'D', 'GLU': 'E',
                      'PRO': 'P', 'GLN': 'Q', 'ARG': 'R', 'SER': 'S',
                      'THR': 'T', 'VAL': 'V', 'TRP': 'W', 'TYR': 'Y'}
 
+_DNA_residues = {'DA': 'A', 'DC': 'C', 'DG': 'G', 'DT': 'T'}
+
+_RNA_residues = {'A': 'A', 'C': 'C', 'G': 'G', 'U': 'U'}
+
+class _FrameAccessor:
+    def __init__(self, scene: "Scene"):
+        self._scene = scene
+
+    def __getitem__(self, index):
+        # Retrieve the multi-frame array from the parent Scene.
+        frames = self._scene.get_coordinate_frames()
+        # Support integer indexing (or slicing that returns one or more frames)
+        new_coords = frames[index]
+        # If a single frame is selected, new_coords has shape (n_atoms, 3).
+        # In that case, create a new Scene that has the same metadata but with
+        # the coordinates replaced by this frame. Importantly, we do NOT copy
+        # the entire multi-frame data.
+        if new_coords.ndim == 2:
+            new_scene = self._scene.copy(deep=True)
+            # Remove the heavy multi-frame data from the new scene.
+            new_scene._meta.pop('coordinate_frames', None)
+            new_scene.set_coordinates(new_coords)
+            return new_scene
+        # If the index returns multiple frames (e.g. a slice), return a list
+        # of Scene objects, one per frame.
+        elif new_coords.ndim == 3:
+            scenes = []
+            for coords in new_coords:
+                new_scene = self._scene.copy(deep=True)
+                new_scene._meta.pop('coordinate_frames', None)
+                new_scene.set_coordinates(coords)
+                scenes.append(new_scene)
+            return scenes
+        else:
+            raise ValueError("Invalid frame dimensions")
+
+    def __iter__(self):
+        frames = self._scene.get_coordinate_frames()
+        for i in range(frames.shape[0]):
+            yield self[i]
+
 
 class Scene(pandas.DataFrame):
     
@@ -34,8 +75,8 @@ class Scene(pandas.DataFrame):
                 'element': 'Element symbol',
                 'charge': 'Charge on the atom',
                 'model': 'Model number',
-                'res_index': 'Residue index',
-                'chain_index': 'Chain index',
+                # 'res_index': 'Residue index',
+                # 'chain_index': 'Chain index',
                 'molecule': 'Molecule name',
                 'resname': 'Residue name'}
     
@@ -77,27 +118,140 @@ class Scene(pandas.DataFrame):
             self['tempFactor'] = [1.0] * len(self)
         if 'resName' not in self.columns:
             self['resName'] = [''] * len(self)
-
-        # Map chain index to index
+        
+        # Create an integer index for the chains
         if 'chain_index' not in self.columns:
             chain_map = {b: a for a, b in enumerate(self['chainID'].unique())}
             self['chain_index'] = self['chainID'].replace(chain_map).astype(int)
 
-        # Map residue to index
+        # Create an integer index for the residues
         if 'res_index' not in self.columns:
-            resmap = []
-            for c, chain in self.groupby('chain_index'):
-                residues = (chain['resSeq'].astype(str) + chain['iCode'].astype(str))
-                unique_residues = residues.unique()
-                dict(zip(unique_residues, range(len(unique_residues))))
-                resmap += [residues.replace(dict(zip(unique_residues, range(len(unique_residues))))).astype(int)]
-            self['res_index'] = pandas.concat(resmap)
+            # Construct a global unique residue key
+            residue_keys = (
+                self['chain_index'].astype(str) +
+                self['resSeq'].astype(str) +
+                self['iCode'].astype(str)
+            )
 
-        # self['resname']=self['resName']
+            # Get unique residue keys and map to integers
+            unique_keys = pandas.Series(residue_keys.unique())
+            key_to_index = dict(zip(unique_keys, range(len(unique_keys))))
+
+            # Map each residue key to its index
+            self['res_index'] = residue_keys.replace(key_to_index).astype(int)
+
+        # Create an integer index for the atoms
+        if 'atom_index' not in self.columns:
+            self['atom_index'] = range(len(self))
 
         # Add metadata
         for attr, value in kwargs.items():
             self._meta[attr] = value
+
+    def set_coordinate_frames(self, frames: np.ndarray):
+        """
+        Set the coordinate frames from a NumPy array.
+
+        Parameters
+        ----------
+        frames : np.ndarray
+            A NumPy array of shape (n_frames, n_atoms, 3).
+
+        Raises
+        ------
+        TypeError
+            If frames is not a NumPy array.
+        ValueError
+            If the array does not have three dimensions or the last dimension is not 3,
+            or if the number of atoms (second dimension) does not match the number of rows.
+        """
+        if not isinstance(frames, np.ndarray):
+            raise TypeError("frames must be a numpy array")
+        if frames.ndim != 3 or frames.shape[2] != 3:
+            raise ValueError("frames must be a 3D numpy array with shape (n_frames, n_atoms, 3)")
+        if frames.shape[1] != len(self):
+            raise ValueError("The number of atoms in frames must match the number of rows in the Scene")
+        self._meta['coordinate_frames'] = frames
+        # Update the current coordinates to the first frame.
+        self.set_coordinates(frames[0])
+
+    def get_coordinate_frames(self) -> np.ndarray:
+        """
+        Retrieve the multi-frame coordinates.
+
+        Returns
+        -------
+        np.ndarray
+            A NumPy array of shape (n_frames, n_atoms, 3). If no frames have been set,
+            the current single-frame coordinates are returned with shape (1, n_atoms, 3).
+        """
+        if 'coordinate_frames' in self._meta:
+            return self._meta['coordinate_frames']
+        else:
+            return self.get_coordinates().to_numpy().reshape(1, -1, 3)
+
+    @property
+    def n_frames(self) -> int:
+        """
+        Number of frames stored in the coordinate frames.
+
+        Returns
+        -------
+        int
+            The number of frames.
+        """
+        return self.get_coordinate_frames().shape[0]
+
+    @property
+    def frames(self) -> _FrameAccessor:
+        """
+        Accessor to select individual frames.
+
+        Example
+        -------
+        >>> frame10 = scene.frames[10]
+        """
+        return _FrameAccessor(self)
+
+    def iterframes(self):
+        """
+        Iterate over frames.
+
+        Yields
+        ------
+        Scene
+            A new Scene for each frame (with the coordinates replaced).
+        """
+        return iter(self.frames)
+
+    def get_frame_coordinates(self, frame_index: int) -> np.ndarray:
+        """
+        Get the coordinates for a particular frame.
+
+        Parameters
+        ----------
+        frame_index : int
+            The index of the desired frame.
+
+        Returns
+        -------
+        np.ndarray
+            An array of shape (n_atoms, 3) for that frame.
+        """
+        frames = self.get_coordinate_frames()
+        return frames[frame_index]
+
+    def set_frame_coordinates(self, frame_index: int):
+        """
+        Set the Scene’s current coordinates to those of a specific frame.
+
+        Parameters
+        ----------
+        frame_index : int
+            The index of the frame to set as current.
+        """
+        frames = self.get_coordinate_frames()
+        self.set_coordinates(frames[frame_index])
 
     def select(self, **kwargs):
         index = self.index
@@ -193,14 +347,111 @@ class Scene(pandas.DataFrame):
         pdb_atoms['tempFactor'] = pandas.to_numeric(pdb_atoms['tempFactor'], errors='coerce').fillna(1.0)
         pdb_atoms['charge'] = pandas.to_numeric(pdb_atoms['tempFactor'], errors='coerce').fillna(0.0)
         pdb_atoms['model'] = model_numbers
+        pdb_atoms['molecule'] = 0
 
         if len(mod_lines) > 0:
             kwargs.update(dict(modified_residues=pandas.DataFrame(mod_lines)))
 
         return cls(pdb_atoms, **kwargs)
 
+    # @classmethod
+    # def from_cif(cls, file, **kwargs):
+    #     _cif_pdb_rename = {'id': 'serial',
+    #                        'label_atom_id': 'name',
+    #                        'label_alt_id': 'altLoc',
+    #                        'label_comp_id': 'resName',
+    #                        'label_asym_id': 'chainID',
+    #                        'label_seq_id': 'resSeq',
+    #                        'pdbx_PDB_ins_code': 'iCode',
+    #                        'Cartn_x': 'x',
+    #                        'Cartn_y': 'y',
+    #                        'Cartn_z': 'z',
+    #                        'occupancy': 'occupancy',
+    #                        'B_iso_or_equiv': 'tempFactor',
+    #                        'type_symbol': 'element',
+    #                        'pdbx_formal_charge': 'charge',
+    #                        'pdbx_PDB_model_num': 'model'}
+
+    #     data = []
+    #     with open(file) as f:
+    #         reader = utils.PdbxReader(f)
+    #         reader.read(data)
+    #     block = data[0]
+    #     atom_data = block.getObj('atom_site')
+    #     cif_atoms = pandas.DataFrame([atom_data.getFullRow(i) for i in range(atom_data.getRowCount())],
+    #                                  columns=atom_data.getAttributeList(),
+    #                                  index=range(atom_data.getRowCount()))
+    #     # Rename columns to pdb convention
+    #     cif_atoms = cif_atoms.rename(_cif_pdb_rename, axis=1)
+    #     for col in cif_atoms.columns:
+    #         try:
+    #             cif_atoms[col] = cif_atoms[col].astype(float)
+    #             if ((cif_atoms[col].astype(int) - cif_atoms[col]) ** 2).sum() == 0:
+    #                 cif_atoms[col] = cif_atoms[col].astype(int)
+    #             continue
+    #         except ValueError:
+    #             pass
+
+    #     cif_atoms['serial'] = pandas.to_numeric(cif_atoms['serial'], errors='coerce').fillna(0).astype(int)
+    #     cif_atoms['resSeq'] = pandas.to_numeric(cif_atoms['resSeq'], errors='coerce').fillna(0).astype(int)
+    #     cif_atoms['x'] = pandas.to_numeric(cif_atoms['x'], errors='coerce').fillna(0.0)
+    #     cif_atoms['y'] = pandas.to_numeric(cif_atoms['y'], errors='coerce').fillna(0.0)
+    #     cif_atoms['z'] = pandas.to_numeric(cif_atoms['z'], errors='coerce').fillna(0.0)
+    #     cif_atoms['occupancy'] = pandas.to_numeric(cif_atoms['occupancy'], errors='coerce').fillna(1.0)
+    #     cif_atoms['tempFactor'] = pandas.to_numeric(cif_atoms['tempFactor'], errors='coerce').fillna(1.0)
+    #     cif_atoms['charge'] = pandas.to_numeric(cif_atoms['tempFactor'], errors='coerce').fillna(0.0)
+
+
+    #     return cls(cif_atoms, **kwargs)
+    
     @classmethod
-    def from_cif(cls, file, **kwargs):
+    def from_cif(cls, file_path, **kwargs):
+        """
+        Extracts only the _atom section from an mmCIF file.
+
+        Args:
+            file_path (str): Path to the CIF file.
+
+        Returns:
+            list: List of parsed atom data rows.
+        """
+       
+        import re
+        atom_data = []
+        atom_header = []
+        in_atom_section = False
+        tokenizer = re.compile(r"""'[^']*'      |  # single-quoted
+                                    "[^"]*"     |  # double-quoted
+                                    \#[^\n]*    |  # comment
+                                    [^\s'"#]+      # unquoted
+                                """, re.VERBOSE)
+
+        with open(file_path, 'r') as file:
+            for line in file:
+                line = line.strip()
+                
+                # Skip empty lines and comments
+                if not line or line.startswith("#"):
+                    continue
+                
+                # Detect the start of the _atom section
+                if line.startswith("loop_"):
+                    in_atom_section = False  # Reset section flag
+                
+                elif line.startswith("_atom_site."):
+                    atom_header.append(line.split('.')[-1])
+                    in_atom_section = True  # Found relevant section, start collecting headers
+                
+                elif in_atom_section:
+                        atom_data.append([
+                                            token.strip("'\"")        # strip any surrounding quotes
+                                            for token in tokenizer.findall(line)
+                                            if not token.startswith('#')  # drop the comment token (and everything after)
+                                        ])
+
+        cif_atoms = pandas.DataFrame(atom_data,columns=atom_header)
+        
+        # Rename columns to pdb convention
         _cif_pdb_rename = {'id': 'serial',
                            'label_atom_id': 'name',
                            'label_alt_id': 'altLoc',
@@ -217,16 +468,6 @@ class Scene(pandas.DataFrame):
                            'pdbx_formal_charge': 'charge',
                            'pdbx_PDB_model_num': 'model'}
 
-        data = []
-        with open(file) as f:
-            reader = utils.PdbxReader(f)
-            reader.read(data)
-        block = data[0]
-        atom_data = block.getObj('atom_site')
-        cif_atoms = pandas.DataFrame([atom_data.getFullRow(i) for i in range(atom_data.getRowCount())],
-                                     columns=atom_data.getAttributeList(),
-                                     index=range(atom_data.getRowCount()))
-        # Rename columns to pdb convention
         cif_atoms = cif_atoms.rename(_cif_pdb_rename, axis=1)
         for col in cif_atoms.columns:
             try:
@@ -245,8 +486,7 @@ class Scene(pandas.DataFrame):
         cif_atoms['occupancy'] = pandas.to_numeric(cif_atoms['occupancy'], errors='coerce').fillna(1.0)
         cif_atoms['tempFactor'] = pandas.to_numeric(cif_atoms['tempFactor'], errors='coerce').fillna(1.0)
         cif_atoms['charge'] = pandas.to_numeric(cif_atoms['tempFactor'], errors='coerce').fillna(0.0)
-
-
+                
         return cls(cif_atoms, **kwargs)
 
     @classmethod
@@ -398,10 +638,10 @@ class Scene(pandas.DataFrame):
         if 'molecule' in pdb_table:
             import string
             cc = utils.chain_name_generator(format='pdb')
-            molecules = self.atoms['molecule'].unique()
+            molecules = self['molecule'].unique()
             cc_d = dict(zip(molecules, cc))
             # cc_d = dict(zip(range(1, len(cc) + 1), cc))
-            pdb_table['chainID'] = self.atoms['molecule'].replace(cc_d)
+            pdb_table['chainID'] = self['molecule'].replace(cc_d)
 
         # Write pdb file
         lines = ''
@@ -713,6 +953,8 @@ class Scene(pandas.DataFrame):
         if all(col in self.columns for col in self._columns.keys()):
             return Scene
         else:
+            print("Warning: Missing required columns. Returning a standard DataFrame.")
+            print([col for col in self._columns.keys() if col not in self.columns])
             return pandas.DataFrame
 
     # def __getattr__(self, attr):
@@ -774,7 +1016,6 @@ class Scene(pandas.DataFrame):
         else:
             # Otherwise, store it in _meta.
             self._meta[attr] = value
-
 
 if __name__ == '__main__':
     particles = pandas.DataFrame([[0, 0, 0],

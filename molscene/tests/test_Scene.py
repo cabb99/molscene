@@ -2,7 +2,7 @@ import pytest
 from molscene import Scene
 from pathlib import Path
 import pandas as pd
-
+import numpy as np
 
 @pytest.fixture
 def pdbfile():
@@ -201,6 +201,62 @@ class Test_Read_Write():
     #        yield self._cif_to_cif, f'{mol}.cif'
 
 
+@pytest.fixture
+def simple_scene():
+    """Fixture to create a simple Scene with 3 atoms."""
+    particles = pd.DataFrame([[0, 0, 0],
+                              [0, 1, 0],
+                              [0, 0, 1]],
+                             columns=['x', 'y', 'z'])
+    return Scene(particles)
+
+@pytest.fixture
+def scene_with_trajectory(simple_scene):
+    """Fixture to create a Scene with multi-frame coordinate data."""
+    n_frames = 5
+    n_atoms = len(simple_scene)
+    frames = np.random.rand(n_frames, n_atoms, 3) * 10  # coordinates in Angstroms
+    simple_scene.set_coordinate_frames(frames)
+    return simple_scene, frames
+
+def test_n_frames(scene_with_trajectory):
+    """Test that the Scene correctly reports the number of frames."""
+    scene, frames = scene_with_trajectory
+    assert scene.n_frames == frames.shape[0], "n_frames should match the stored number of frames."
+
+def test_get_frame_coordinates(scene_with_trajectory):
+    """Test that get_frame_coordinates retrieves the correct frame."""
+    scene, frames = scene_with_trajectory
+    frame_index = 2
+    np.testing.assert_array_equal(scene.get_frame_coordinates(frame_index), frames[frame_index])
+
+def test_set_frame_coordinates(scene_with_trajectory):
+    """Test that set_frame_coordinates correctly updates the Scene's coordinates."""
+    scene, frames = scene_with_trajectory
+    frame_index = 3
+    scene.set_frame_coordinates(frame_index)
+    np.testing.assert_array_equal(scene.get_coordinates().to_numpy(), frames[frame_index])
+
+def test_frames_accessor(scene_with_trajectory):
+    """Test that accessing a specific frame via Scene.frames[index] returns the correct Scene."""
+    scene, frames = scene_with_trajectory
+    frame_index = 1
+    frame_scene = scene.frames[frame_index]
+
+    np.testing.assert_array_equal(frame_scene.get_coordinates().to_numpy(), frames[frame_index])
+    
+    # Ensure the returned Scene does not retain multi-frame metadata
+    assert 'coordinate_frames' not in frame_scene._meta, "Returned frame scene should not have coordinate_frames in _meta."
+
+def test_iterframes(scene_with_trajectory):
+    """Test that iterframes() correctly iterates over all frames."""
+    scene, frames = scene_with_trajectory
+    count = 0
+    for frame_scene in scene.iterframes():
+        np.testing.assert_array_equal(frame_scene.get_coordinates().to_numpy(), frames[count])
+        assert len(list(frame_scene.columns))>3
+        count += 1
+    assert count == scene.n_frames, "iterframes() should yield exactly n_frames scenes."
 
 
 if __name__ == '__main__':
