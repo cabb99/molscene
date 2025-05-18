@@ -6,10 +6,11 @@ Python library to allow easy handling of coordinate files for molecular dynamics
 import pandas
 import numpy as np
 import io
-from typing import Union, Tuple
-from . import utils
+from typing import Union, Tuple, Sequence, List
 import re
 from scipy.spatial import cKDTree, distance
+import logging
+from . import utils
 
 
 
@@ -878,12 +879,12 @@ class Scene(pandas.DataFrame):
 
     def translate(self, other):
         new = self.copy()
-        new.at[:, ['x', 'y', 'z']] = self.get_coordinates() + other
+        new.set_coordinates(self.get_coordinates() + other)
         return new
 
     def dot(self, other):
         new = self.copy()
-        new.at[:, ['x', 'y', 'z']] = self.get_coordinates().dot(other)
+        new.set_coordinates(self.get_coordinates().dot(other))
         return new
 
     def distance_map(self, threshold=None) -> Union[np.ndarray, tuple]:
@@ -930,40 +931,98 @@ class Scene(pandas.DataFrame):
 
         return pairs_sym, dists_sym
 
+    def get_center(self) -> pandas.Series:
+        """
+        Compute the centroid (geometric center) of the atomic coordinates.
+
+        Returns
+        -------
+        pandas.Series
+            A Series with index ['x','y','z'] giving the mean of each coordinate.
+        """
+        # select the three coord columns and take their column‐wise mean
+        return self[['x','y','z']].mean()
+
+    def center(self) -> "Scene":
+        """
+        Return a new Scene with coordinates shifted so the centroid is at the origin.
+
+        Returns
+        -------
+        Scene
+            A new Scene object with centered coordinates.
+        """
+        ctr = self.get_center()
+        # make a shallow copy of metadata and DataFrame
+        out = self.copy(deep=True)
+        # subtract the centroid Series from each row (axis=1 => align on column names)
+        out[['x','y','z']] = out[['x','y','z']].sub(ctr, axis=1)
+        return out
+
+
     def __repr__(self):
         try:
             return f'<Scene ({len(self)})>\n{super().__repr__()}'
-        except AttributeError:
+        except Exception:
             return '<Scene (Uninitialized)>'
 
+    def __add__(self, other: Union["Scene", float, Sequence, pandas.Series]) -> "Scene":
+        # 1) Scene + Scene => concatenation
+        if isinstance(other, Scene):
+            df = pandas.concat([self, other], ignore_index=True)
+            return Scene(df, **self._meta)
 
-    def __add__(self, other):
-        if isinstance(other, self.__class__):
-            concatenated = pandas.concat([self, other], axis=0)
-            return Scene(concatenated)
-        else:
-            coord = self.get_coordinates()
-            temp = self.copy()
-            temp.set_coordinates(coord + other)
-            return temp
+        # 2) Scene + vector/series/scalar => translation
+        delta = _as_delta(other)
+        out = self.copy(deep=True)
+        out[['x','y','z']] = out[['x','y','z']].add(delta, axis=1)
+        #out.set_coordinate_frames(out.get_coordinate_frames()[1] + delta)
+        return out
 
     def __radd__(self, other):
-        if isinstance(other, self.__class__):
-            return other + s
-        else:
-            return Scene(super().__add__(other))
+        # vector + Scene  same as Scene + vector
+        return self.__add__(other)
 
-    def __mul__(self, other):
-        coord = self.get_coordinates()
-        temp = self.copy()
-        temp.set_coordinates(coord * other)
-        return temp
+    def __sub__(self, other: Union["Scene", float, Sequence, pandas.Series]) -> "Scene":
+        # 1) Scene - Scene => difference by atom_index
+        if isinstance(other, Scene):
+            mask = ~self['atom_index'].isin(other['atom_index'])
+            df = self.loc[mask].reset_index(drop=True)
+            return Scene(df, **self._meta)
+
+        # 2) Scene - vector => translation by -delta
+        return self.__add__(_negate(other))
+
+    def __rsub__(self, other: Union[float, Sequence, pandas.Series]):
+        # vector - Scene => new coords = other - coords
+        delta = _as_delta(other)
+        out = self.copy(deep=True)
+        # subtract each row from delta
+        out[['x','y','z']] = (np.array(delta) - out[['x','y','z']].to_numpy())
+        return out
+
+    def __mul__(self, other: Union[float, Sequence, pandas.Series]) -> "Scene":
+        # Scene * scalar/vector => scale coords
+        factor = _as_delta(other)
+        out = self.copy(deep=True)
+        out[['x','y','z']] = out[['x','y','z']].mul(factor, axis=1)
+        return out
 
     def __rmul__(self, other):
-        coord = self.get_coordinates()
-        temp = self.copy()
-        temp.set_coordinates(other * coord)
-        return temp
+        return self.__mul__(other)
+
+    def __truediv__(self, other: Union[float, Sequence, pandas.Series]) -> "Scene":
+        # Scene / scalar/vector => divide coords
+        divisor = _as_delta(other)
+        out = self.copy(deep=True)
+        out[['x','y','z']] = out[['x','y','z']].div(divisor, axis=1)
+        return out
+    
+    def __neg__(self) -> "Scene":
+        # -Scene => reflect through origin
+        out = self.copy(deep=True)
+        out[['x','y','z']] = -out[['x','y','z']]
+        return out
 
     @property
     def _constructor(self):
@@ -971,8 +1030,8 @@ class Scene(pandas.DataFrame):
         if all(col in self.columns for col in self._columns.keys()):
             return Scene
         else:
-            print("Warning: Missing required columns. Returning a standard DataFrame.")
-            print([col for col in self._columns.keys() if col not in self.columns])
+            logging.debug("Warning: Missing required columns. Returning a standard DataFrame.")
+            logging.debug([col for col in self._columns.keys() if col not in self.columns])
             return pandas.DataFrame
 
     # def __getattr__(self, attr):
@@ -1035,6 +1094,30 @@ class Scene(pandas.DataFrame):
             # Otherwise, store it in _meta.
             self._meta[attr] = value
 
+# helpers outside the class
+
+def _as_delta(other) -> pandas.Series:
+    """
+    Normalize a scalar, sequence of length-3, or Series
+    into a pandas.Series indexed ['x','y','z'].
+    """
+    if isinstance(other, pandas.Series):
+        delta = other.reindex(['x','y','z']).astype(float)
+    elif isinstance(other, (int, float)):
+        delta = pandas.Series([other]*3, index=['x','y','z'], dtype=float)
+    else:
+        arr = np.asarray(other, float)
+        if arr.shape == (3,):
+            delta = pandas.Series(arr, index=['x','y','z'])
+        else:
+            raise ValueError(f"Cannot interpret {other!r} as a 3-vector")
+    return delta
+
+def _negate(other):
+    """Invert a scalar/sequence/Series for subtraction."""
+    delta = _as_delta(other)
+    return -delta
+
 if __name__ == '__main__':
     particles = pandas.DataFrame([[0, 0, 0],
                                   [0, 1, 0],
@@ -1069,7 +1152,7 @@ import numpy as np
 import pandas as pd
 
 def h5store(filename, df, **kwargs):
-    store = pd.HDFStore(filename)
+    store = pandas.HDFStore(filename)
     store.put('mydata', df)
     store.get_storer('mydata').attrs.metadata = kwargs
     store.close()
@@ -1079,13 +1162,13 @@ def h5load(store):
     metadata = store.get_storer('mydata').attrs.metadata
     return data, metadata
 
-a = pd.DataFrame(
-    data=pd.np.random.randint(0, 100, (10, 5)), columns=list('ABCED'))
+a = pandas.DataFrame(
+    data=pandas.np.random.randint(0, 100, (10, 5)), columns=list('ABCED'))
 
 filename = '/tmp/data.h5'
 metadata = dict(local_tz='US/Eastern')
 h5store(filename, a, **metadata)
-with pd.HDFStore(filename) as store:
+with pandas.HDFStore(filename) as store:
     data, metadata = h5load(store)
 
 print(data)
