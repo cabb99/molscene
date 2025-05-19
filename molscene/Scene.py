@@ -967,61 +967,123 @@ class Scene(pandas.DataFrame):
             return '<Scene (Uninitialized)>'
 
     def __add__(self, other: Union["Scene", float, Sequence, pandas.Series]) -> "Scene":
-        # 1) Scene + Scene => concatenation
         if isinstance(other, Scene):
+            logging.debug("Scene + Scene: concatenation")
             df = pandas.concat([self, other], ignore_index=True)
             return Scene(df, **self._meta)
-
-        # 2) Scene + vector/series/scalar => translation
-        delta = _as_delta(other)
+        
+        logging.debug(f"Scene + {type(other)}: translation")
+        delta = _as_delta(other).to_numpy()  # shape (3,)
         out = self.copy(deep=True)
-        out[['x','y','z']] = out[['x','y','z']].add(delta, axis=1)
-        #out.set_coordinate_frames(out.get_coordinate_frames()[1] + delta)
+        
+        if 'coordinate_frames' in self._meta:
+            logging.debug("Scene + vector: multi-frame translation")
+            frames = self.get_coordinate_frames()
+            new_frames = frames + delta[None, None, :]
+            out._meta['coordinate_frames'] = new_frames
+            out.set_coordinates(new_frames[0])
+        
+        else:
+            logging.debug("Scene + vector: single-frame translation")
+            out[['x','y','z']] = out[['x','y','z']] + delta
         return out
 
     def __radd__(self, other):
-        # vector + Scene  same as Scene + vector
-        return self.__add__(other)
-
+        logging.debug(f"{type(other)} + Scene: __radd__ called")
+        return self.__add__(other) 
+    
     def __sub__(self, other: Union["Scene", float, Sequence, pandas.Series]) -> "Scene":
-        # 1) Scene - Scene => difference by atom_index
         if isinstance(other, Scene):
+            logging.debug("Scene - Scene: remove atoms with matching atom_index")
             mask = ~self['atom_index'].isin(other['atom_index'])
             df = self.loc[mask].reset_index(drop=True)
             return Scene(df, **self._meta)
-
-        # 2) Scene - vector => translation by -delta
-        return self.__add__(_negate(other))
+        
+        logging.debug(f"Scene - {type(other)}: translation by -delta")
+        delta = _as_delta(other).to_numpy()
+        out = self.copy(deep=True)
+        
+        if 'coordinate_frames' in self._meta:
+            logging.debug("Scene - vector: multi-frame translation")
+            frames = self.get_coordinate_frames()
+            new_frames = frames - delta[None, None, :]
+            out._meta['coordinate_frames'] = new_frames
+            out.set_coordinates(new_frames[0])
+        
+        else:
+            logging.debug("Scene - vector: single-frame translation")
+            out[['x','y','z']] = out[['x','y','z']].to_numpy() - delta
+        return out
 
     def __rsub__(self, other: Union[float, Sequence, pandas.Series]):
-        # vector - Scene => new coords = other - coords
-        delta = _as_delta(other)
+        logging.debug(f"{type(other)} - Scene: elementwise subtraction")
+        delta = _as_delta(other).to_numpy()
         out = self.copy(deep=True)
-        # subtract each row from delta
-        out[['x','y','z']] = (np.array(delta) - out[['x','y','z']].to_numpy())
+        
+        if 'coordinate_frames' in self._meta:
+            logging.debug("vector - Scene: multi-frame")
+            frames = self.get_coordinate_frames()
+            new_frames = delta[None, None, :] - frames
+            out._meta['coordinate_frames'] = new_frames
+            out.set_coordinates(new_frames[0])
+        
+        else:
+            logging.debug("vector - Scene: single-frame")
+            out[['x','y','z']] = delta - out[['x','y','z']].to_numpy()
         return out
 
     def __mul__(self, other: Union[float, Sequence, pandas.Series]) -> "Scene":
-        # Scene * scalar/vector => scale coords
-        factor = _as_delta(other)
+        logging.debug(f"Scene * {type(other)}: scaling")
+        factor = _as_delta(other).to_numpy()
         out = self.copy(deep=True)
-        out[['x','y','z']] = out[['x','y','z']].mul(factor, axis=1)
+        
+        if 'coordinate_frames' in self._meta:
+            logging.debug("Scene * vector: multi-frame scaling")
+            frames = self.get_coordinate_frames()
+            new_frames = frames * factor[None, None, :]
+            out._meta['coordinate_frames'] = new_frames
+            out.set_coordinates(new_frames[0])
+        
+        else:
+            logging.debug("Scene * vector: single-frame scaling")
+            out[['x','y','z']] = out[['x','y','z']].to_numpy() * factor
         return out
 
     def __rmul__(self, other):
         return self.__mul__(other)
 
     def __truediv__(self, other: Union[float, Sequence, pandas.Series]) -> "Scene":
-        # Scene / scalar/vector => divide coords
-        divisor = _as_delta(other)
+        logging.debug(f"Scene / {type(other)}: division")
+        divisor = _as_delta(other).to_numpy()
         out = self.copy(deep=True)
-        out[['x','y','z']] = out[['x','y','z']].div(divisor, axis=1)
+        
+        if 'coordinate_frames' in self._meta:
+            logging.debug("Scene / vector: multi-frame division")
+            frames = self.get_coordinate_frames()
+            new_frames = frames / divisor[None, None, :]
+            out._meta['coordinate_frames'] = new_frames
+            out.set_coordinates(new_frames[0])
+        
+        else:
+            logging.debug("Scene / vector: single-frame division")
+            out[['x','y','z']] = out[['x','y','z']].to_numpy() / divisor
+        
         return out
-    
+
     def __neg__(self) -> "Scene":
-        # -Scene => reflect through origin
+        logging.debug("Scene: negation/reflection")
         out = self.copy(deep=True)
-        out[['x','y','z']] = -out[['x','y','z']]
+        
+        if 'coordinate_frames' in self._meta:
+            logging.debug("Scene: multi-frame negation")
+            frames = self.get_coordinate_frames()
+            new_frames = -frames
+            out._meta['coordinate_frames'] = new_frames
+            out.set_coordinates(new_frames[0])
+        else:
+        
+            logging.debug("Scene: single-frame negation")
+            out[['x','y','z']] = -out[['x','y','z']].to_numpy()
         return out
 
     @property
@@ -1055,7 +1117,7 @@ class Scene(pandas.DataFrame):
     #         return self[attr]
 
     #     raise AttributeError(f"{self.__class__.__name__} has no attribute {attr}")
-
+    
     def __getattribute__(self, name):
         """
         Override attribute lookup only to provide access to items stored in _meta.
@@ -1094,6 +1156,48 @@ class Scene(pandas.DataFrame):
             # Otherwise, store it in _meta.
             self._meta[attr] = value
 
+    __array_priority__ = 1000  # Ensure Scene takes precedence in numpy ops
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        """
+        Handle numpy ufuncs like np.add, np.subtract, np.multiply, etc.
+        Route to corresponding dunder methods.
+        """
+       
+        if method != "__call__":
+            return NotImplemented
+
+        # Unpack inputs
+        logging.debug(f"Scene.__array_ufunc__({ufunc}, {method}, {inputs})")
+        if ufunc == np.add:
+            a, b = inputs
+            if isinstance(a, Scene):
+                return a.__add__(b)
+            elif isinstance(b, Scene):
+                return b.__radd__(a)
+        elif ufunc == np.subtract:
+            a, b = inputs
+            if isinstance(a, Scene):
+                return a.__sub__(b)
+            elif isinstance(b, Scene):
+                return b.__rsub__(a)
+        elif ufunc == np.multiply:
+            a, b = inputs
+            if isinstance(a, Scene):
+                return a.__mul__(b)
+            elif isinstance(b, Scene):
+                return b.__rmul__(a)
+        elif ufunc == np.true_divide:
+            a, b = inputs
+            if isinstance(a, Scene):
+                return a.__truediv__(b)
+        elif ufunc == np.negative:
+            (a,) = inputs
+            if isinstance(a, Scene):
+                return a.__neg__()
+
+        return NotImplemented
+
 # helpers outside the class
 
 def _as_delta(other) -> pandas.Series:
@@ -1102,6 +1206,10 @@ def _as_delta(other) -> pandas.Series:
     into a pandas.Series indexed ['x','y','z'].
     """
     if isinstance(other, pandas.Series):
+        # Check that the series has 'x', 'y', 'z' as index, and reorder if necessary
+        if set(other.index) != {'x', 'y', 'z'}:
+            raise ValueError(f"Series index must be ['x','y','z'], not {other.index}")
+        # Reorder the series to match ['x','y','z']
         delta = other.reindex(['x','y','z']).astype(float)
     elif isinstance(other, (int, float)):
         delta = pandas.Series([other]*3, index=['x','y','z'], dtype=float)
