@@ -300,6 +300,21 @@ def test_distance_map():
     expected_dists = [1.0, 1.0, 1.0, 1.0, np.sqrt(2), np.sqrt(2)]
     np.testing.assert_allclose(sorted(dists), sorted(expected_dists))
 
+def test_get_sequence_1zbl():
+    s = Scene.from_cif('molscene/data/1zbl.cif')
+    seqs = s.get_sequence()
+    # Reference sequences from user prompt
+    ref = {
+        'A': 'GACACCUGAUUC',
+        'B': 'GAATCAGGTGTC',
+        'D': 'EEIIWESLSVDVGSQGNPGIVEYKGVDTKTGEVLFEREPIPIGTNNMGEFLAIVHGLRYLKERNSRKPIYSDSQTAIKWVKDKKAKSTLVRNEETALIWKLVDEAEEWLNTHTYETPILKWQTDKWGEIKANY'
+    }
+    # Allow for possible chainID mapping (e.g. auth labels)
+    for k, v in ref.items():
+        assert k in seqs, f"Chain {k} not found in parsed sequence. Found: {list(seqs.keys())}"
+        assert seqs[k].startswith(v[:6]), f"Chain {k} sequence does not match reference. Got: {seqs[k][:6]}, expected: {v[:6]}"
+        assert seqs[k] == v, f"Chain {k} sequence mismatch.\nExpected: {v}\nGot: {seqs[k]}"
+
 
 if __name__ == '__main__':
     pass

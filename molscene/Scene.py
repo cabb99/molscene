@@ -856,7 +856,35 @@ class Scene(pandas.DataFrame):
         return self[['x', 'y', 'z']]
 
     def get_sequence(self):
-        pass
+        """
+        Return the sequence for each chain in the Scene as a dictionary.
+        Uses _protein_residues, _DNA_residues, and _RNA_residues for mapping.
+        Unknown residues are mapped to 'X'.
+        Returns
+        -------
+        dict
+            Mapping from chainID to sequence string.
+        """
+        seq_dict = {}
+        # Group by chainID and resSeq
+        grouped = self.sort_values(['chainID', 'resSeq']).drop_duplicates(
+            subset=['chainID', 'resSeq']
+        )
+        for chain_id, group in grouped.groupby('chainID'):
+            seq = ''
+            for _, row in group.iterrows():
+                res = str(row['resName']).strip()
+                # Try protein, then DNA, then RNA
+                if res in _protein_residues:
+                    seq += _protein_residues[res]
+                elif res in _DNA_residues:
+                    seq += _DNA_residues[res]
+                elif res in _RNA_residues:
+                    seq += _RNA_residues[res]
+                else:
+                    seq += 'X'
+            seq_dict[chain_id] = seq
+        return seq_dict
 
     def set_coordinates(self, coordinates):
         self[['x', 'y', 'z']] = coordinates
