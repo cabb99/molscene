@@ -67,9 +67,8 @@ jobs:
       run: |
         pytest -v --cov=molscene --cov-report=xml --color=yes molscene/tests/
 
-    - name: CodeCov
-      uses: codecov/codecov-action@v1
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
       with:
-        file: ./coverage.xml
-        flags: unittests
-        name: codecov-${{ matrix.os }}-py${{ matrix.python-version }}
+        token: ${{ secrets.CODECOV_TOKEN }}
+        slug: cabb99/molscene
