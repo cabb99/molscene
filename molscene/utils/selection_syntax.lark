@@ -52,7 +52,7 @@ COMMENT: /#[^\n]*/
           | "(" selection ")"
 
 //Range selection
-comparison_sel: math_expr (comparison_op math_expr)*   -> comparison_selection
+comparison_sel: math_expr (comparison_op math_expr)+   -> comparison_selection
 
 ?range_sel: math_expr number_expr TO number_expr -> range_selection
           | math_expr number_expr COLON number_expr -> range_selection
@@ -235,7 +235,9 @@ BRIDGE_BETA    : "bridge_beta"
 
 MACRO: "@" CNAME
 
-bool_keyword: bool_universal | bool_biomolecule | bool_residue | bool_atom | bool_structure | bool_size | bool_secondary| MACRO
+bool_macro: MACRO -> macro_sel
+
+bool_keyword: bool_universal | bool_biomolecule | bool_residue | bool_atom | bool_structure | bool_size | bool_secondary| bool_macro
 
 // --------------------------
 // Tokens
@@ -314,9 +316,8 @@ MASS      : "mass"
 CHARGE    : "charge"
 RADIUS    : "radius"
 ELEMENT   : "type" | "element" | "symbol"
-VARIABLE  : "$" CNAME
 
-?select_property: BETA | OCCUPANCY | ALTLOC | MASS | CHARGE | RADIUS | ELEMENT| VARIABLE
+?select_property: BETA | OCCUPANCY | ALTLOC | MASS | CHARGE | RADIUS | ELEMENT
 
 // Vector Information
 X        : "x"
@@ -362,11 +363,16 @@ CONFORMATION : "conformation"
 
 ?select_residue: RESIDUE | RESNAME | RESID | CHAINID | SEGMENT_ID | CONFORMATION
 
+VARIABLE  : "$"CNAME
+
+select_variable: VARIABLE -> var_sel
+
 ?selection_keyword: select_property
                   | select_position
                   | select_indexing
                   | select_fragment
                   | select_residue
+                  | select_variable
 
 // ----------------------------
 // MATH KEYWORDS
@@ -403,5 +409,8 @@ E       : "e"
 
 
 //VALUE.-10: /(?!(to|:)\b)[^\s()]+/       // Last resort for anything not matched by other rules (most greedy)
-VALUE.-10: /(?![-'"()])(?!(?:all|none|protein|nucleic|dna|rna|water|lipid|ion|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|amino|purine|pyrimidine|hetero|cg|tA|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|backbone|sidechain|small|medium|large|buried|surface|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|=\~|not|or|and|xor|<=|>=|==|<|>|!=|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|\/\/|%|\*\*|beta|occupancy|altloc|mass|charge|radius|type|\$|x|y|z|fx|fy|fz|vx|vy|vz|code|name|index|bonds|fragment|pfrag|nfrag|residue|resname|resid|chainid|segment_id|conformation|sin|cos|tan|asin|acos|atan|exp|log|log10|sqrt|sq|abs)\b)[^()'"\s]+/       // Last resort for anything not matched by other rules (most greedy)
+//VALUE.-10: /(?![-'"()])(?!(?:all|none|protein|nucleic|dna|rna|water|lipid|ion|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|amino|purine|pyrimidine|hetero|cg|tA|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|backbone|sidechain|small|medium|large|buried|surface|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|=\~|not|or|and|xor|<=|>=|==|<|>|!=|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|\/\/|%|\*\*|beta|occupancy|altloc|mass|charge|radius|type|\$|x|y|z|fx|fy|fz|vx|vy|vz|code|name|index|bonds|fragment|pfrag|nfrag|residue|resname|resid|chainid|segment_id|conformation|sin|cos|tan|asin|acos|atan|exp|log|log10|sqrt|sq|abs)\b)[^()'"\s]+/       // Last resort for anything not matched by other rules (most greedy)
+VALUE.-10: /(?![-'"()])(?!(?:all|everything|none|nothing|protein|is_protein|nucleic|is_nucleic|dna|is_dna|rna|is_rna|water|waters|is_water|lipid|lipids|ion|ions|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|amino|purine|pyrimidine|hetero|cg|tA|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|ca|alpha|backbone|is_backbone|sidechain|is_sidechain|small|medium|large|buried|surface|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|=\~|not|!|or|\|\||\||and|\&\&|\&|xor|<=|le|>=|ge|==|=|eq|<|lt|>|gt|!=|ne|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|%|\*\*|\^|beta|occupancy|altloc|mass|charge|radius|type|element|symbol|\$|x|y|z|fx|fy|fz|vx|vy|vz|code|rescode|resc|name|index|bonds|numbonds|fragment|pfrag|nfrag|residue|resSeq|resname|resn|resid|resi|chainid|segment_id|segname|conformation|sin|cos|tan|asin|acos|atan|exp|log|log10|sqrt|sq|abs|pi|e)\b)(?!\d+(?:\.\d*)?(?:[eE][+-]?\d+)?\b)(?=[A-Za-z])[^()'"\s]+/   // Last resort for anything not matched by other rules (most greedy)
 
+//TODO: Allow comparisons == and != to be used with strings
+//TODO: 

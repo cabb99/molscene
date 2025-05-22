@@ -7,9 +7,6 @@ from lark import Lark, Transformer, v_args
 # ————————————————————————————————————————————————————————————————————
 # 1) Lark grammar capturing the ENTIRE VMD selection language
 # ————————————————————————————————————————————————————————————————————
-with open("molscene/utils/selection_syntax.lark", "r") as f:
-    Lark(f.read(), parser='lalr', debug=True)
-
 _protein_residues = {'ALA': 'A', 'CYS': 'C', 'ASP': 'D', 'GLU': 'E',
                      'PHE': 'F', 'GLY': 'G', 'HIS': 'H', 'ILE': 'I',
                      'LYS': 'K', 'LEU': 'L', 'MET': 'M', 'ASN': 'N',
@@ -19,6 +16,12 @@ _protein_residues = {'ALA': 'A', 'CYS': 'C', 'ASP': 'D', 'GLU': 'E',
 _DNA_residues = {'DA': 'A', 'DC': 'C', 'DG': 'G', 'DT': 'T'}
 
 _RNA_residues = {'A': 'A', 'C': 'C', 'G': 'G', 'U': 'U'}
+
+#parser_rule = 'lalr'
+parser_rule = 'earley'
+with open("molscene/utils/selection_syntax.lark", "r") as f:
+    Lark(f.read(), parser=parser_rule, debug=True)
+
 
 # ————————————————————————————————————————————————————————————————————
 # 2) Transformer: AST → Boolean masks over a Scene
@@ -208,7 +211,7 @@ class VMDTransformer(Transformer):
 # ————————————————————————————————————————————————————————————————————
 class VMDSelector:
     with open("molscene/utils/selection_syntax.lark", "r") as f:
-        parser = Lark(f.read(), parser='lalr', debug=True)
+        parser = Lark(f.read(), parser=parser_rule, debug=True)
 
     def __init__(self, scene, macros=None, **variables):
         self.scene  = scene
@@ -272,12 +275,12 @@ if __name__ == "__main__":
         ("Element selection", "element O"),
         ("Mass range float", "mass 5.5 to 12.3"),
         ("Binary selection operator", "name < 1"),
-        ("Binary selection operator (ne)", "name ne O"),
-        ("Binary selection operator (eq)", "name eq 1"),
-        ("Binary selection operator (ge)", "name ge 1"),
-        ("Binary selection operator (le)", "name le 1"),
-        ("Binary selection operator (gt)", "name gt 1"),
-        ("Binary selection operator (lt)", "name lt 1"),
+        ("Binary selection operator (ne)", "resid ne 0"),
+        ("Binary selection operator (eq)", "resid eq 1"),
+        ("Binary selection operator (ge)", "resid ge 1"),
+        ("Binary selection operator (le)", "resid le 1"),
+        ("Binary selection operator (gt)", "resid gt 1"),
+        ("Binary selection operator (lt)", "resid lt 1"),
         ("Reverse binary selection", "1 == name"),
         ("Reverse binary selection (eq)", "1 eq name"),
 
@@ -319,7 +322,7 @@ if __name__ == "__main__":
         ("Complex selection with distance", "protein within 5 of (resname ALA or resname GLY)"),
         ("Complex selection with sequence", 'sequence "C..C" and resname ALA'),
         ("Complex selection with macro", "@alanine and within 5 of water"),
-        ("Complex selection with user variable", "$var1 and $var2"),
+        ("Complex selection with user variable", "$var1==1 and 0<$var2<2"),
         ("Complex selection with function", "sqrt(x**2 + y**2 + z**2) < 10"),
 
         # --- Math ---
@@ -338,8 +341,9 @@ if __name__ == "__main__":
     ]
 
     with open("molscene/utils/selection_syntax.lark", "r") as f:
-        parser = Lark(f.read(), parser='lalr', debug=True)
-    for i, (desc, sel) in reversed(list(enumerate(EXAMPLES))):
+        parser = Lark(f.read(), parser=parser_rule, debug=True)
+    # for i, (desc, sel) in reversed(list(enumerate(EXAMPLES))):
+    for i, (desc, sel) in enumerate(EXAMPLES):
         print(f"\nExample {i+1} [{desc}]: {sel}")
         try:
             tree = parser.parse(sel)
