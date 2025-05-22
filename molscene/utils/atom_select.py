@@ -297,8 +297,9 @@ if __name__ == "__main__":
         # --- Sequence and macros ---
         ("Sequence pattern", 'sequence "C..C"'),
         ("Macro usage", "@alanine"),
+        ("User variable", "$var1 1"),
         ("Macro with AND", "protein and @alanine"),
-        ("User variable", "within 8 of $center and @alanine"),
+        ("User variable complex", "within 8 of ($center 1 and @alanine)"),
 
         # --- Parentheses and complex logic ---
         ("Parentheses", "(protein or water) and not hetero"),
@@ -339,7 +340,7 @@ if __name__ == "__main__":
     ]
 
     with open("molscene/utils/selection_syntax.lark", "r") as f:
-        parser = Lark(f.read(), parser='lalr', debug=True)
+        parser = Lark(f.read(), parser='earley', debug=True)
     for i, (desc, sel) in reversed(list(enumerate(EXAMPLES))):
         print(f"\nExample {i+1} [{desc}]: {sel}")
         try:

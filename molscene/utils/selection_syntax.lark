@@ -29,13 +29,13 @@ XOR_OP    : "xor"
 ?logical_op: OR_OP | AND_OP | NOT_OP
 
 // COMPARISON OPERATORS
-LT        : "<"    | "lt"       
-LE        : "<="   | "le"       
-GT        : ">"    | "gt"       
-GE        : ">="   | "ge"       
+LE        : "<="   | "le"     
+GE        : ">="   | "ge"     
 EQ        : "=="   | "=" | "eq" 
+LT        : "<"    | "lt"       
+GT        : ">"    | "gt"       
 NE        : "!="   | "ne"       
-?comparison_op: LT | LE | GT | GE | EQ | NE
+?comparison_op: LE | GE | EQ | LT | GT | NE
 
 // RANGE OPERATORS
 TO        : "to"          
@@ -52,6 +52,13 @@ INTEGER_DIV : "//"
 MOD         : "%"           
 POW         : "**" | "^"    
 ?math_op : PLUS | MINUS | TIMES | DIV | MOD | POW
+
+?operation_keyword: math_op
+                | logical_op
+                | comparison_op
+                | range_op
+                | REGEXP_OP
+                | NOT_OP
 
 
 // --------------------------
@@ -118,6 +125,7 @@ HEAVY      : "heavy"
 ?bool_atom: CARBON | HYDROGEN | NITROGEN | OXYGEN | SULFUR | PHOSPHORUS | FLUORINE | CHLORINE | BROMINE | IODINE | METAL | NOH | HEAVY
 
 // Structural Role
+CALPHA   : "calpha" | "ca" | "alpha"
 BACKBONE   : "backbone" | "is_backbone"
 SIDECHAIN  : "sidechain" | "is_sidechain"
 // SUGAR      : "sugar" | "is_sugar"
@@ -125,7 +133,7 @@ SIDECHAIN  : "sidechain" | "is_sidechain"
 // NUCLEOBASE : "nucleobase" | "is_nucleobase"
 // STRUCTURE  : "structure"
 
-?bool_structure: BACKBONE | SIDECHAIN
+?bool_structure: BACKBONE | SIDECHAIN | CALPHA
 
 // Size / Exposure
 SMALL      : "small"
@@ -152,10 +160,11 @@ HELIX310       : "helix_3_10"
 EXTENDED_BETA  : "extended_beta"
 BRIDGE_BETA    : "bridge_beta"
 
-
 ?bool_secondary: ALPHA_HELIX | PI_HELIX | HELIX | HELIX310 | EXTENDED_BETA | BRIDGE_BETA | SHEET | TURN | COIL
 
-?bool_keyword: bool_universal | bool_biomolecule | bool_residue | bool_atom | bool_structure | bool_size | bool_secondary
+MACRO: "@" CNAME
+
+bool_keyword: bool_universal | bool_biomolecule | bool_residue | bool_atom | bool_structure | bool_size | bool_secondary| MACRO
 
 // --------------------------
 // Selection Keywords
@@ -169,9 +178,9 @@ MASS      : "mass"
 CHARGE    : "charge"
 RADIUS    : "radius"
 ELEMENT   : "type" | "element" | "symbol"
-VARIABLE  : CNAME
+VARIABLE  : "$" CNAME
 
-?select_property: BETA | OCCUPANCY | ALTLOC | MASS | CHARGE | RADIUS | ELEMENT
+?select_property: BETA | OCCUPANCY | ALTLOC | MASS | CHARGE | RADIUS | ELEMENT| VARIABLE
 
 // Vector Information
 X        : "x"
@@ -239,9 +248,10 @@ EXP     : "exp"
 LOG     : "log"
 LOG10   : "log10"
 SQRT    : "sqrt"
+SQUARE  : "sq"
 ABS     : "abs"
 
-?function_name: SIN | COS | TAN | ASIN | ACOS | ATAN | EXP | LOG | LOG10 | SQRT | ABS
+?function_name: SIN | COS | TAN | ASIN | ACOS | ATAN | EXP | LOG | LOG10 | SQRT | SQUARE | ABS
 
 // --------------------------
 // Math Grammar
@@ -294,14 +304,6 @@ ABS     : "abs"
 // Selection Grammar
 // --------------------------
 
-VALUE: /[^\s()]+/       // Last resort for anything not matched by other rules
-
-?selection_value: ESCAPED_STRING | SIGNED_NUMBER | VALUE
-
-// Property selection
-property_sel: selection_keyword property_list   -> variable_block
-property_list: selection_value (COMMA? selection_value)*        -> property_list
-
 //Range selection
 comparison_sel: math_expr (comparison_op math_expr)+   -> cmp_chain
 ?range_sel: math_expr number_expr TO number_expr -> range_sel
@@ -312,20 +314,21 @@ comparison_sel: math_expr (comparison_op math_expr)+   -> cmp_chain
 regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_sel
 
 // Within selection
-within_sel: "within" number_expr "of" selection     -> within_sel
-exwithin_sel: "exwithin" number_expr "of" selection -> exwithin_sel
+within_sel: "within" number_expr "of" expr     -> within_sel
+exwithin_sel: "exwithin" number_expr "of" expr -> exwithin_sel
 
 // Same selection
-same_sel: "same" selection_keyword "as" selection -> same_sel
+same_sel: "same" selection_keyword "as" expr -> same_sel
 
-selection: bool_keyword
-         | comparison_sel
-         | range_sel
-         | property_sel
-         | regex_sel
-         | within_sel
-         | exwithin_sel
-         | same_sel
+?selection: bool_keyword
+          | comparison_sel
+          | range_sel
+          | regex_sel
+          | within_sel
+          | exwithin_sel
+          | same_sel
+          | property_sel
+          | "(" selection ")"
 
 // ---------------------------
 // LOGICAL OPERATIONS
@@ -351,6 +354,20 @@ selection: bool_keyword
 
 ?atom: "(" expr ")"
      | selection
+
+// ---------------------
+// Property Selection
+// ---------------------
+
+VALUE.-1: /(?!(to|:)\b)[^\s()]+/       // Last resort for anything not matched by other rules (most greedy)
+
+?selection_value.-1: ESCAPED_STRING 
+                   | SIGNED_NUMBER 
+                   | VALUE
+
+// Property selection
+property_sel.-1: selection_keyword property_list                   -> property
+property_list.-1: selection_value (COMMA? selection_value)*        -> property_list
 
 
 // Macro expansions
