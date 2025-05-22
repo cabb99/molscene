@@ -220,12 +220,11 @@ NFRAG    : "nfrag"
 RESIDUE    : "residue" | "resSeq"
 RESNAME    : "resname" | "resn"
 RESID      : "resid" | "resi"
-SEQUENCE   : "sequence"
 CHAINID    : "chainid"
 SEGMENT_ID : "segment_id" | "segname"
 CONFORMATION : "conformation"
 
-?select_residue: RESIDUE | RESNAME | RESID | SEQUENCE | CHAINID | SEGMENT_ID | CONFORMATION
+?select_residue: RESIDUE | RESNAME | RESID | CHAINID | SEGMENT_ID | CONFORMATION
 
 ?selection_keyword: select_property
                   | select_position
@@ -323,7 +322,7 @@ bonded_sel: "bonded" number_expr "to" expr -> bonded_selection
 exbonded_sel: "exbonded" number_expr "to" expr -> exbonded_selection
 
 // Sequence selection
-sequence_value: [a-zA-Z]+
+sequence_value: /[a-zA-Z]+/
 
 sequence_sel_regex: "sequence" ESCAPED_STRING -> sequence_selection_regex
 sequence_sel: "sequence" sequence_value -> sequence_selection
