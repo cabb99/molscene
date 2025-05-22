@@ -318,6 +318,7 @@ regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_selection
 within_sel: "within" number_expr "of" expr     -> within_selection
 exwithin_sel: "exwithin" number_expr "of" expr -> exwithin_selection
 
+// Bonded selection
 bonded_sel: "bonded" number_expr "to" expr -> bonded_selection
 exbonded_sel: "exbonded" number_expr "to" expr -> exbonded_selection
 
