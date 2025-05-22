@@ -243,7 +243,6 @@ if __name__ == "__main__":
         ("Is_water alias", "is_water"),
         ("Everything alias", "everything"),
         ("Nothing alias", "nothing"),
-        ("Name with quotes", "name 'CA'"),
         ("Name with quotes 2", 'name "CA"'),
         ("Name with quotes 3", 'name "CA" "CB" "CA CB"'),
 
@@ -310,7 +309,6 @@ if __name__ == "__main__":
         ("Nested bool with parens", "nothing and (water or all)"),
         ("Quotes test 1", "name CA and resname ALA"),
         ("Quotes test 2", 'name "CA" and resname ALA'),
-        ("Quotes test 3", "name 'CA' and resname ALA"),
         ("In operator with resname", "resname ALA ASP GLU"),
         ("In operator with resid", "resid 100 101 102"),
 
@@ -340,7 +338,7 @@ if __name__ == "__main__":
     ]
 
     with open("molscene/utils/selection_syntax.lark", "r") as f:
-        parser = Lark(f.read(), parser='earley', debug=True)
+        parser = Lark(f.read(), parser='lalr', debug=True)
     for i, (desc, sel) in reversed(list(enumerate(EXAMPLES))):
         print(f"\nExample {i+1} [{desc}]: {sel}")
         try:
@@ -349,3 +347,40 @@ if __name__ == "__main__":
             print(tree.pretty())
         except exceptions.LarkError as e:
             print(f"Parse failed: {e.__class__.__name__}: {e}")
+
+# Macro expansions
+MACROS = {
+    "acidic": "resname ASP GLU",
+    "acyclic": "protein and not cyclic",
+    "aliphatic": "resname ALA GLY ILE LEU VAL",
+    "alpha": "protein and name CA",
+    "amino": "protein",
+    "aromatic": "resname HIS PHE TRP TYR",
+    "basic": "resname ARG HIS LYS HSP",
+    "bonded": "numbonds > 0",
+    "buried": "resname ALA LEU VAL ILE PHE CYS MET TRP",
+    "cg": "resname CYT C GUA G", 
+    "charged": "basic or acidic",
+    "cyclic": "resname HIS PHE PRO TRP TYR",
+    "glycan": "resname NAG BGLN FUC AFUC MAN AMAN BMA BMAN",
+    "heme": "resname HEM HEME",
+    "hydrophobic": "resname ALA LEU VAL ILE PRO PHE MET TRP",
+    "ion": "resname AL BA CA CAL CD CES CLA CL CO CS CU CU1 CUA HG IN IOD K LIT MG MN3 MO3 MO4 MO5 MO6 NA NAW OC7 PB POT PT RB SOD TB TL WO4 YB ZN ZN1 ZN2",
+    "ions": "ion",
+    "large": "protein and not (small or medium)",
+    "lipid": "resname DLPE DMPC DPPC GPC LPPC PALM PC PGCL POPC POPE",
+    "lipids": "lipid",
+    "medium": "resname VAL THR ASP ASN PRO CYS ASX PCA HYP",
+    "neutral": "resname VAL PHE GLN TYR HIS CYS MET TRP ASX GLX PCA HYP",
+    "noh": "not hydrogen",
+    "polar": "protein and not hydrophobic",
+    "protein": "protein",
+    "purine": "resname ADE A GUA G",
+    "pyrimidine": "resname CYT C THY T URA U",
+    "small": "resname ALA GLY SER",
+    "solvent": "not (protein or sugar or nucleic or lipid)",
+    "sugar": "resname AGLC",
+    "surface": "protein and not buried",
+    "water": "waters",
+    "drude": "type DRUD or type LP"
+}

@@ -11,55 +11,126 @@
 COMMENT: /#[^\n]*/
 %ignore COMMENT
 
+// ---------------------------
+// LOGICAL OPERATIONS
+// ---------------------------
+
+?start: expr
+
+// Logical precedence (OR < XOR < AND < NOT)
+?expr: or_expr
+
+?or_expr: xor_expr
+        | or_expr OR_OP xor_expr      -> or_
+
+?xor_expr: and_expr
+         | xor_expr XOR_OP and_expr   -> xor_
+
+?and_expr: not_expr
+         | and_expr AND_OP not_expr   -> and_
+         | not_expr not_expr   -> and_
+
+?not_expr: NOT_OP not_expr            -> not_
+         | atom
+
+?atom: "(" expr ")"
+     | selection
+
 // --------------------------
-// Tokens
+// Selection Grammar
 // --------------------------
 
-// Regex match
-REGEXP_OP : "=~"                 
+?selection: bool_keyword
+          | comparison_sel
+          | range_sel
+          | regex_sel
+          | within_sel
+          | bonded_sel
+          | sequence_sel
+          | same_sel
+          | property_sel
+          | "(" selection ")"
 
-// Not
-NOT_OP    : "not"  | "!"        
+//Range selection
+comparison_sel: math_expr (comparison_op math_expr)*   -> comparison_selection
 
-// LOGICAL OPERATORS
-OR_OP     : "or"   | "||" | "|"
-AND_OP    : "and"  | "&&" | "&"
-XOR_OP    : "xor"         
+?range_sel: math_expr number_expr TO number_expr -> range_selection
+          | math_expr number_expr COLON number_expr -> range_selection
+          | math_expr number_expr COLON number_expr COLON number_expr -> stride_selection
 
-?logical_op: OR_OP | AND_OP | NOT_OP
+// Regex selection
+regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_selection
 
-// COMPARISON OPERATORS
-LE        : "<="   | "le"     
-GE        : ">="   | "ge"     
-EQ        : "=="   | "=" | "eq" 
-LT        : "<"    | "lt"       
-GT        : ">"    | "gt"       
-NE        : "!="   | "ne"       
-?comparison_op: LE | GE | EQ | LT | GT | NE
+// Within selection
+?within_sel: whithin_op number_expr OF expr     -> within_selection
 
-// RANGE OPERATORS
-TO        : "to"          
-COLON     : ":"           
-COMMA     : ","           
-?range_op : TO | COLON | COMMA
+// Bonded selection
+?bonded_sel: bonded_op number_expr TO expr -> bonded_selection
 
-// MATH OPERATORS
-PLUS        : "+"           
-MINUS       : "-"           
-TIMES       : "*"           
-DIV         : "/"           
-INTEGER_DIV : "//"          
-MOD         : "%"           
-POW         : "**" | "^"
-?math_op : PLUS | MINUS | TIMES | DIV | MOD | POW
+// Sequence selection
+sequence_value: /[a-zA-Z]+/
+?sequence_sel: sequence_op ESCAPED_STRING -> sequence_selection_regex
+             | sequence_op sequence_value -> sequence_selection
 
-?operation_keyword: math_op
-                | logical_op
-                | comparison_op
-                | range_op
-                | REGEXP_OP
-                | NOT_OP
+// Same selection
+same_sel: same_op selection_keyword AS expr -> same_selection
 
+?selection_value.-10: ESCAPED_STRING -> _escaped_string
+                    | SIGNED_NUMBER  -> _number
+                    | VALUE          -> _value   
+
+// Property selection
+property_sel.-10: selection_keyword property_list                   -> property_selection
+property_list.-10: selection_value (COMMA? selection_value)*        -> property_list
+
+// --------------------------
+// Math Grammar
+// --------------------------
+
+// Math expression with variables
+?math_expr: sum
+
+?sum: product
+    | sum PLUS product              -> add
+    | sum MINUS product             -> sub
+
+?product: power
+        | product TIMES power       -> mul
+        | product DIV power         -> div
+        | product INTEGER_DIV power -> int_div
+        | product MOD power         -> mod
+
+?power: value
+      | power POW value             -> pow
+
+?value: SIGNED_NUMBER               -> number
+      | constant                      -> const
+      | "-" value                   -> neg
+      | function_name "(" math_expr ")" -> func
+      | selection_keyword
+      | "(" math_expr ")"
+
+// Math expression with no variables
+?number_expr: number_sum
+
+?number_sum: number_product
+           | number_sum PLUS number_product        -> add
+           | number_sum MINUS number_product       -> sub
+
+?number_product: number_power
+               | number_product TIMES number_power -> mul
+               | number_product DIV number_power   -> div
+               | number_product INTEGER_DIV number_power -> int_div
+               | number_product MOD number_power   -> mod
+
+?number_power: number_value
+             | number_power POW number_value       -> pow
+
+?number_value: SIGNED_NUMBER                       -> number
+             | constant                            -> const
+             | "-" number_value                    -> neg
+             | function_name "(" math_expr ")"     -> func
+             | "(" number_sum ")"
 
 // --------------------------
 // Boolean Keywords
@@ -167,6 +238,71 @@ MACRO: "@" CNAME
 bool_keyword: bool_universal | bool_biomolecule | bool_residue | bool_atom | bool_structure | bool_size | bool_secondary| MACRO
 
 // --------------------------
+// Tokens
+// --------------------------
+
+// Regex match
+REGEXP_OP : "=~"                 
+
+// Not
+NOT_OP    : "not"  | "!"        
+
+// LOGICAL OPERATORS
+OR_OP     : "or"   | "||" | "|"
+AND_OP    : "and"  | "&&" | "&"
+XOR_OP    : "xor"         
+
+?logical_op: OR_OP | AND_OP | NOT_OP
+
+// COMPARISON OPERATORS
+LE        : "<="   | "le"     
+GE        : ">="   | "ge"     
+EQ        : "=="   | "=" | "eq" 
+LT        : "<"    | "lt"       
+GT        : ">"    | "gt"       
+NE        : "!="   | "ne"       
+?comparison_op: LE | GE | EQ | LT | GT | NE
+
+// RANGE OPERATORS
+     
+COLON     : ":"           
+COMMA     : ","           
+?range_op : TO | COLON | COMMA
+
+// COMPARISON TOKENS
+SAME      : "same"
+AS        : "as"
+WITHIN    : "within"
+EXWITHIN  : "exwithin"
+OF        : "of"
+BONDED    : "bonded"
+EXBONDED  : "exbonded"
+TO        : "to"    
+SEQUENCE  : "sequence"
+?whithin_op: WITHIN | EXWITHIN
+?bonded_op : BONDED | EXBONDED
+?same_op: SAME
+?sequence_op: SEQUENCE
+
+// MATH OPERATORS
+PLUS        : "+"           
+MINUS       : "-"           
+TIMES       : "*"           
+DIV         : "/"           
+INTEGER_DIV : "//"          
+MOD         : "%"           
+POW         : "**" | "^"
+?math_op : PLUS | MINUS | TIMES | DIV | MOD | POW
+
+?operation_keyword: math_op
+                | logical_op
+                | comparison_op
+                | range_op
+                | REGEXP_OP
+                | NOT_OP
+
+
+// --------------------------
 // Selection Keywords
 // --------------------------
 
@@ -253,171 +389,19 @@ ABS     : "abs"
 ?function_name: SIN | COS | TAN | ASIN | ACOS | ATAN | EXP | LOG | LOG10 | SQRT | SQUARE | ABS
 
 // --------------------------
-// Math Grammar
+// Constants
 // --------------------------
 
-// Math expression with variables
-?math_expr: sum
+PI      : "pi"
+E       : "e"
 
-?sum: product
-    | sum PLUS product              -> add
-    | sum MINUS product             -> sub
+?constant: PI | E
 
-?product: power
-        | product TIMES power       -> mul
-        | product DIV power         -> div
-        | product INTEGER_DIV power -> int_div
-        | product MOD power         -> mod
-
-?power: value
-      | power POW value             -> pow
-
-?value: SIGNED_NUMBER               -> number
-      | "-" value                   -> neg
-      | function_name "(" math_expr ")" -> func
-      | selection_keyword
-      | "(" math_expr ")"
-
-// Math expression with no variables
-?number_expr: number_sum
-
-?number_sum: number_product
-           | number_sum PLUS number_product        -> add
-           | number_sum MINUS number_product       -> sub
-
-?number_product: number_power
-               | number_product TIMES number_power -> mul
-               | number_product DIV number_power   -> div
-               | number_product INTEGER_DIV number_power -> int_div
-               | number_product MOD number_power   -> mod
-
-?number_power: number_value
-             | number_power POW number_value       -> pow
-
-?number_value: SIGNED_NUMBER                       -> number
-             | "-" number_value                    -> neg
-             | function_name "(" math_expr ")"     -> func
-             | "(" number_sum ")"
-
-// --------------------------
-// Selection Grammar
+//--------------------------
+// Values
 // --------------------------
 
-//Range selection
-comparison_sel: math_expr (comparison_op math_expr)+   -> comparison_selection
 
-?range_sel: math_expr number_expr TO number_expr -> range_selection
-          | math_expr number_expr COLON number_expr -> range_selection
-          | math_expr number_expr COLON number_expr COLON number_expr -> stride_selection
-
-// Regex selection
-regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_selection
-
-// Within selection
-within_sel: "within" number_expr "of" expr     -> within_selection
-exwithin_sel: "exwithin" number_expr "of" expr -> exwithin_selection
-
-// Bonded selection
-bonded_sel: "bonded" number_expr "to" expr -> bonded_selection
-exbonded_sel: "exbonded" number_expr "to" expr -> exbonded_selection
-
-// Sequence selection
-sequence_value: /[a-zA-Z]+/
-
-sequence_sel_regex: "sequence" ESCAPED_STRING -> sequence_selection_regex
-sequence_sel: "sequence" sequence_value -> sequence_selection
-
-// Same selection
-same_sel: "same" selection_keyword "as" expr -> same_selection
-
-?selection: bool_keyword
-          | comparison_sel
-          | range_sel
-          | regex_sel
-          | within_sel
-          | exwithin_sel
-          | bonded_sel
-          | exbonded_sel
-          | sequence_sel
-          | sequence_sel_regex
-          | same_sel
-          | property_sel
-          | "(" selection ")"
-
-// ---------------------------
-// LOGICAL OPERATIONS
-// ---------------------------
-
-?start: expr
-
-// Logical precedence (OR < XOR < AND < NOT)
-?expr: or_expr
-
-?or_expr: xor_expr
-        | or_expr OR_OP xor_expr      -> or_
-
-?xor_expr: and_expr
-         | xor_expr XOR_OP and_expr   -> xor_
-
-?and_expr: not_expr
-         | and_expr AND_OP not_expr   -> and_
-         | not_expr not_expr   -> and_
-
-?not_expr: NOT_OP not_expr            -> not_
-         | atom
-
-?atom: "(" expr ")"
-     | selection
-
-// ---------------------
-// Property Selection
-// ---------------------
-
-VALUE.-10: /(?!(to|:)\b)[^\s()]+/       // Last resort for anything not matched by other rules (most greedy)
-
-?selection_value.-1: ESCAPED_STRING 
-                   | SIGNED_NUMBER 
-                   | VALUE
-
-// Property selection
-property_sel.-1: selection_keyword property_list                   -> property_selection
-property_list.-1: selection_value (COMMA? selection_value)*        -> property_list
-
-
-// Macro expansions
-// MACROS = {
-//     "acidic": "resname ASP GLU",
-//     "acyclic": "protein and not cyclic",
-//     "aliphatic": "resname ALA GLY ILE LEU VAL",
-//     "alpha": "protein and name CA",
-//     "amino": "protein",
-//     "aromatic": "resname HIS PHE TRP TYR",
-//     "basic": "resname ARG HIS LYS HSP",
-//     "bonded": "numbonds > 0",
-//     "buried": "resname ALA LEU VAL ILE PHE CYS MET TRP",
-//     "cg": "resname CYT C GUA G",
-//     "charged": "basic or acidic",
-//     "cyclic": "resname HIS PHE PRO TRP TYR",
-//     "glycan": "resname NAG BGLN FUC AFUC MAN AMAN BMA BMAN",
-//     "heme": "resname HEM HEME",
-//     "hydrophobic": "resname ALA LEU VAL ILE PRO PHE MET TRP",
-//     "ion": "resname AL BA CA CAL CD CES CLA CL CO CS CU CU1 CUA HG IN IOD K LIT MG MN3 MO3 MO4 MO5 MO6 NA NAW OC7 PB POT PT RB SOD TB TL WO4 YB ZN ZN1 ZN2",
-//     "ions": "ion",
-//     "large": "protein and not (small or medium)",
-//     "lipid": "resname DLPE DMPC DPPC GPC LPPC PALM PC PGCL POPC POPE",
-//     "lipids": "lipid",
-//     "medium": "resname VAL THR ASP ASN PRO CYS ASX PCA HYP",
-//     "neutral": "resname VAL PHE GLN TYR HIS CYS MET TRP ASX GLX PCA HYP",
-//     "noh": "not hydrogen",
-//     "polar": "protein and not hydrophobic",
-//     "protein": "protein",
-//     "purine": "resname ADE A GUA G",
-//     "pyrimidine": "resname CYT C THY T URA U",
-//     "small": "resname ALA GLY SER",
-//     "solvent": "not (protein or sugar or nucleic or lipid)",
-//     "sugar": "resname AGLC",
-//     "surface": "protein and not buried",
-//     "water": "waters",
-//     "drude": "type DRUD or type LP"
-// }
+//VALUE.-10: /(?!(to|:)\b)[^\s()]+/       // Last resort for anything not matched by other rules (most greedy)
+VALUE.-10: /(?![-'"()])(?!(?:all|none|protein|nucleic|dna|rna|water|lipid|ion|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|amino|purine|pyrimidine|hetero|cg|tA|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|backbone|sidechain|small|medium|large|buried|surface|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|=\~|not|or|and|xor|<=|>=|==|<|>|!=|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|\/\/|%|\*\*|beta|occupancy|altloc|mass|charge|radius|type|\$|x|y|z|fx|fy|fz|vx|vy|vz|code|name|index|bonds|fragment|pfrag|nfrag|residue|resname|resid|chainid|segment_id|conformation|sin|cos|tan|asin|acos|atan|exp|log|log10|sqrt|sq|abs)\b)[^()'"\s]+/       // Last resort for anything not matched by other rules (most greedy)
 
