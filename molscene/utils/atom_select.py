@@ -340,7 +340,7 @@ if __name__ == "__main__":
 
     with open("molscene/utils/selection_syntax.lark", "r") as f:
         parser = Lark(f.read(), parser='lalr', debug=True)
-    for i, (desc, sel) in enumerate(EXAMPLES):
+    for i, (desc, sel) in reversed(list(enumerate(EXAMPLES))):
         print(f"\nExample {i+1} [{desc}]: {sel}")
         try:
             tree = parser.parse(sel)

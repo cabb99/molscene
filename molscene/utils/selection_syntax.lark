@@ -224,7 +224,24 @@ CONFORMATION : "conformation"
                   | select_fragment
                   | select_residue
 
-?selection_value: CNAME | ESCAPED_STRING
+// ----------------------------
+// MATH KEYWORDS
+// ----------------------------
+
+// Math function names (as terminals, so they're easy to recognize)
+SIN     : "sin"
+COS     : "cos"
+TAN     : "tan"
+ASIN    : "asin"
+ACOS    : "acos"
+ATAN    : "atan"
+EXP     : "exp"
+LOG     : "log"
+LOG10   : "log10"
+SQRT    : "sqrt"
+ABS     : "abs"
+
+?function_name: SIN | COS | TAN | ASIN | ACOS | ATAN | EXP | LOG | LOG10 | SQRT | ABS
 
 // --------------------------
 // Math Grammar
@@ -248,6 +265,7 @@ CONFORMATION : "conformation"
 
 ?value: SIGNED_NUMBER               -> number
       | "-" value                   -> neg
+      | function_name "(" math_expr ")" -> func
       | selection_keyword
       | "(" math_expr ")"
 
@@ -269,24 +287,26 @@ CONFORMATION : "conformation"
 
 ?number_value: SIGNED_NUMBER                       -> number
              | "-" number_value                    -> neg
+             | function_name "(" math_expr ")"     -> func
              | "(" number_sum ")"
 
 // --------------------------
 // Selection Grammar
 // --------------------------
 
-//Range selection
-comparison_sel: math_expr (comparison_op math_expr)+   -> cmp_chain
+VALUE: /[^\s()]+/       // Last resort for anything not matched by other rules
 
-// Range selection
-?range_sel: math_expr number_expr TO number_expr -> range_sel
-          | math_expr number_expr COLON number_expr -> range_sel
-          | math_expr number_expr COLON number_expr COLON number_expr -> range_sel_stride
-
+?selection_value: ESCAPED_STRING | SIGNED_NUMBER | VALUE
 
 // Property selection
 property_sel: selection_keyword property_list   -> variable_block
 property_list: selection_value (COMMA? selection_value)*        -> property_list
+
+//Range selection
+comparison_sel: math_expr (comparison_op math_expr)+   -> cmp_chain
+?range_sel: math_expr number_expr TO number_expr -> range_sel
+          | math_expr number_expr COLON number_expr -> range_sel
+          | math_expr number_expr COLON number_expr COLON number_expr -> range_sel_stride
 
 // Regex selection
 regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_sel
