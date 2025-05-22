@@ -22,8 +22,8 @@ REGEXP_OP : "=~"
 NOT_OP    : "not"  | "!"        
 
 // LOGICAL OPERATORS
-OR_OP     : "or"   | "||" | "|" 
-AND_OP    : "and"  | "&&" | "&" 
+OR_OP     : "or"   | "||" 
+AND_OP    : "and"  | "&&" 
 XOR_OP    : "xor"         
 
 ?logical_op: OR_OP | AND_OP | NOT_OP
@@ -50,7 +50,7 @@ TIMES       : "*"
 DIV         : "/"           
 INTEGER_DIV : "//"          
 MOD         : "%"           
-POW         : "**" | "^"    
+POW         : "**"
 ?math_op : PLUS | MINUS | TIMES | DIV | MOD | POW
 
 ?operation_keyword: math_op
