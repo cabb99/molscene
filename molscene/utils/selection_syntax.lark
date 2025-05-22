@@ -22,8 +22,8 @@ REGEXP_OP : "=~"
 NOT_OP    : "not"  | "!"        
 
 // LOGICAL OPERATORS
-OR_OP     : "or"   | "||" 
-AND_OP    : "and"  | "&&" 
+OR_OP     : "or"   | "||" | "|"
+AND_OP    : "and"  | "&&" | "&"
 XOR_OP    : "xor"         
 
 ?logical_op: OR_OP | AND_OP | NOT_OP
@@ -50,7 +50,7 @@ TIMES       : "*"
 DIV         : "/"           
 INTEGER_DIV : "//"          
 MOD         : "%"           
-POW         : "**"
+POW         : "**" | "^"
 ?math_op : PLUS | MINUS | TIMES | DIV | MOD | POW
 
 ?operation_keyword: math_op
@@ -305,20 +305,21 @@ ABS     : "abs"
 // --------------------------
 
 //Range selection
-comparison_sel: math_expr (comparison_op math_expr)+   -> cmp_chain
-?range_sel: math_expr number_expr TO number_expr -> range_sel
-          | math_expr number_expr COLON number_expr -> range_sel
-          | math_expr number_expr COLON number_expr COLON number_expr -> range_sel_stride
+comparison_sel: math_expr (comparison_op math_expr)+   -> comparison_selection
+
+?range_sel: math_expr number_expr TO number_expr -> range_selection
+          | math_expr number_expr COLON number_expr -> range_selection
+          | math_expr number_expr COLON number_expr COLON number_expr -> stride_selection
 
 // Regex selection
-regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_sel
+regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_selection
 
 // Within selection
-within_sel: "within" number_expr "of" expr     -> within_sel
-exwithin_sel: "exwithin" number_expr "of" expr -> exwithin_sel
+within_sel: "within" number_expr "of" expr     -> within_selection
+exwithin_sel: "exwithin" number_expr "of" expr -> exwithin_selection
 
 // Same selection
-same_sel: "same" selection_keyword "as" expr -> same_sel
+same_sel: "same" selection_keyword "as" expr -> same_selection
 
 ?selection: bool_keyword
           | comparison_sel
@@ -359,14 +360,14 @@ same_sel: "same" selection_keyword "as" expr -> same_sel
 // Property Selection
 // ---------------------
 
-VALUE.-1: /(?!(to|:)\b)[^\s()]+/       // Last resort for anything not matched by other rules (most greedy)
+VALUE.-10: /(?!(to|:)\b)[^\s()]+/       // Last resort for anything not matched by other rules (most greedy)
 
 ?selection_value.-1: ESCAPED_STRING 
                    | SIGNED_NUMBER 
                    | VALUE
 
 // Property selection
-property_sel.-1: selection_keyword property_list                   -> property
+property_sel.-1: selection_keyword property_list                   -> property_selection
 property_list.-1: selection_value (COMMA? selection_value)*        -> property_list
 
 
