@@ -1,0 +1,372 @@
+// --------------------------
+// Imports & Ignored
+// --------------------------
+%import common.CNAME
+%import common.SIGNED_NUMBER
+%import common.ESCAPED_STRING
+%import common.WS_INLINE
+%ignore WS_INLINE
+
+// Ignore Python-style comments
+COMMENT: /#[^\n]*/
+%ignore COMMENT
+
+// --------------------------
+// Tokens
+// --------------------------
+
+// Regex match
+REGEXP_OP : "=~"                 
+
+// Not
+NOT_OP    : "not"  | "!"        
+
+// LOGICAL OPERATORS
+OR_OP     : "or"   | "||" | "|" 
+AND_OP    : "and"  | "&&" | "&" 
+XOR_OP    : "xor"         
+
+?logical_op: OR_OP | AND_OP | NOT_OP
+
+// COMPARISON OPERATORS
+LT        : "<"    | "lt"       
+LE        : "<="   | "le"       
+GT        : ">"    | "gt"       
+GE        : ">="   | "ge"       
+EQ        : "=="   | "=" | "eq" 
+NE        : "!="   | "ne"       
+?comparison_op: LT | LE | GT | GE | EQ | NE
+
+// RANGE OPERATORS
+TO        : "to"          
+COLON     : ":"           
+COMMA     : ","           
+?range_op : TO | COLON | COMMA
+
+// MATH OPERATORS
+PLUS        : "+"           
+MINUS       : "-"           
+TIMES       : "*"           
+DIV         : "/"           
+INTEGER_DIV : "//"          
+MOD         : "%"           
+POW         : "**" | "^"    
+?math_op : PLUS | MINUS | TIMES | DIV | MOD | POW
+
+
+// --------------------------
+// Boolean Keywords
+// --------------------------
+
+// Universal keywords
+ALL        : "all" | "everything"                 
+NONE       : "none" | "nothing"                   
+
+?bool_universal: ALL | NONE
+
+// Universal keywords
+PROTEIN    : "protein" | "is_protein"
+NUCLEIC    : "nucleic" | "is_nucleic"
+DNA        : "dna" | "is_dna"
+RNA        : "rna" | "is_rna"
+WATER      : "water" | "waters" | "is_water"
+LIPID      : "lipid" | "lipids"
+ION        : "ion" | "ions"
+SUGAR      : "sugar"
+GLYCAN     : "glycan"
+HEME       : "heme"
+DRUDE      : "drude"
+SOLVENT    : "solvent"
+
+?bool_biomolecule: PROTEIN | NUCLEIC | DNA | RNA | WATER | LIPID | ION | SUGAR | GLYCAN | HEME | DRUDE | SOLVENT
+
+// Residue Type
+AROMATIC   : "aromatic"
+ALIPHATIC  : "aliphatic"
+POLAR      : "polar"
+HYDROPHOBIC: "hydrophobic"
+CHARGED    : "charged"
+ACIDIC     : "acidic"
+BASIC      : "basic"
+NEUTRAL    : "neutral"
+ACYCLIC    : "acyclic"
+CYCLIC     : "cyclic"
+AMINO      : "amino"
+PURINE     : "purine"
+PYRIMIDINE : "pyrimidine"
+HETERO     : "hetero"
+CG         : "cg"
+TA         : "tA"
+
+?bool_residue: AROMATIC | ALIPHATIC | POLAR | HYDROPHOBIC | CHARGED | ACIDIC | BASIC | NEUTRAL | ACYCLIC | CYCLIC | AMINO | PURINE | PYRIMIDINE | HETERO | CG | TA
+
+// Atom Type
+CARBON     : "carbon"
+HYDROGEN   : "hydrogen"
+NITROGEN   : "nitrogen"
+OXYGEN     : "oxygen"
+SULFUR     : "sulfur"
+PHOSPHORUS : "phosphorus"
+FLUORINE   : "fluorine"
+CHLORINE   : "chlorine"
+BROMINE    : "bromine"
+IODINE     : "iodine"
+METAL      : "metal"
+NOH        : "noh"
+HEAVY      : "heavy"
+
+?bool_atom: CARBON | HYDROGEN | NITROGEN | OXYGEN | SULFUR | PHOSPHORUS | FLUORINE | CHLORINE | BROMINE | IODINE | METAL | NOH | HEAVY
+
+// Structural Role
+BACKBONE   : "backbone" | "is_backbone"
+SIDECHAIN  : "sidechain" | "is_sidechain"
+// SUGAR      : "sugar" | "is_sugar"
+// PHOSPHATE  : "phosphate" | "is_phosphate"
+// NUCLEOBASE : "nucleobase" | "is_nucleobase"
+// STRUCTURE  : "structure"
+
+?bool_structure: BACKBONE | SIDECHAIN
+
+// Size / Exposure
+SMALL      : "small"
+MEDIUM     : "medium"
+LARGE      : "large"
+
+?bool_size: SMALL | MEDIUM | LARGE
+
+// Exposure
+
+BURIED     : "buried"
+SURFACE    : "surface"
+
+?bool_exposure: BURIED | SURFACE
+
+// Secondary Structure
+HELIX          : "helix"
+SHEET          : "sheet"
+TURN           : "turn"
+COIL           : "coil"
+ALPHA_HELIX    : "alpha_helix"
+PI_HELIX       : "pi_helix"
+HELIX310       : "helix_3_10"
+EXTENDED_BETA  : "extended_beta"
+BRIDGE_BETA    : "bridge_beta"
+
+
+?bool_secondary: ALPHA_HELIX | PI_HELIX | HELIX | HELIX310 | EXTENDED_BETA | BRIDGE_BETA | SHEET | TURN | COIL
+
+?bool_keyword: bool_universal | bool_biomolecule | bool_residue | bool_atom | bool_structure | bool_size | bool_secondary
+
+// --------------------------
+// Selection Keywords
+// --------------------------
+
+// Atom Properties
+BETA      : "beta"
+OCCUPANCY : "occupancy"
+ALTLOC    : "altloc"
+MASS      : "mass"
+CHARGE    : "charge"
+RADIUS    : "radius"
+ELEMENT   : "type" | "element" | "symbol"
+VARIABLE  : CNAME
+
+?select_property: BETA | OCCUPANCY | ALTLOC | MASS | CHARGE | RADIUS | ELEMENT
+
+// Vector Information
+X        : "x"
+Y        : "y"
+Z        : "z"
+FX       : "fx"
+FY       : "fy"
+FZ       : "fz"
+VX       : "vx"
+VY       : "vy"
+VZ       : "vz"
+
+?select_position: X | Y | Z
+
+// --------------------------
+// Indexing / Codes / Labels
+// --------------------------
+CODE     : "code" | "rescode" | "resc"
+NAME_KW  : "name"
+INDEX_KW : "index"
+
+?select_indexing: CODE | NAME_KW | INDEX_KW
+
+// --------------------------
+// Connectivity / Fragmentation
+// --------------------------
+BONDS    : "bonds" | "numbonds"
+FRAGMENT : "fragment"
+PFRAG    : "pfrag"
+NFRAG    : "nfrag"
+
+?select_fragment: BONDS | FRAGMENT | PFRAG | NFRAG
+
+// --------------------------
+// Residue Information
+// --------------------------
+RESIDUE    : "residue" | "resSeq"
+RESNAME    : "resname" | "resn"
+RESID      : "resid" | "resi"
+SEQUENCE   : "sequence"
+CHAINID    : "chainid"
+SEGMENT_ID : "segment_id" | "segname"
+CONFORMATION : "conformation"
+
+?select_residue: RESIDUE | RESNAME | RESID | SEQUENCE | CHAINID | SEGMENT_ID | CONFORMATION
+
+?selection_keyword: select_property
+                  | select_position
+                  | select_indexing
+                  | select_fragment
+                  | select_residue
+
+?selection_value: CNAME | ESCAPED_STRING
+
+// --------------------------
+// Math Grammar
+// --------------------------
+
+// Math expression with variables
+?math_expr: sum
+
+?sum: product
+    | sum PLUS product              -> add
+    | sum MINUS product             -> sub
+
+?product: power
+        | product TIMES power       -> mul
+        | product DIV power         -> div
+        | product INTEGER_DIV power -> int_div
+        | product MOD power         -> mod
+
+?power: value
+      | power POW value             -> pow
+
+?value: SIGNED_NUMBER               -> number
+      | "-" value                   -> neg
+      | selection_keyword
+      | "(" math_expr ")"
+
+// Math expression with no variables
+?number_expr: number_sum
+
+?number_sum: number_product
+           | number_sum PLUS number_product        -> add
+           | number_sum MINUS number_product       -> sub
+
+?number_product: number_power
+               | number_product TIMES number_power -> mul
+               | number_product DIV number_power   -> div
+               | number_product INTEGER_DIV number_power -> int_div
+               | number_product MOD number_power   -> mod
+
+?number_power: number_value
+             | number_power POW number_value       -> pow
+
+?number_value: SIGNED_NUMBER                       -> number
+             | "-" number_value                    -> neg
+             | "(" number_sum ")"
+
+// --------------------------
+// Selection Grammar
+// --------------------------
+
+//Range selection
+comparison_sel: math_expr (comparison_op math_expr)+   -> cmp_chain
+
+// Range selection
+?range_sel: math_expr number_expr TO number_expr -> range_sel
+          | math_expr number_expr COLON number_expr -> range_sel
+          | math_expr number_expr COLON number_expr COLON number_expr -> range_sel_stride
+
+
+// Property selection
+property_sel: selection_keyword property_list   -> variable_block
+property_list: selection_value (COMMA? selection_value)*        -> property_list
+
+// Regex selection
+regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_sel
+
+// Within selection
+within_sel: "within" number_expr "of" selection     -> within_sel
+exwithin_sel: "exwithin" number_expr "of" selection -> exwithin_sel
+
+// Same selection
+same_sel: "same" selection_keyword "as" selection -> same_sel
+
+selection: bool_keyword
+         | comparison_sel
+         | range_sel
+         | property_sel
+         | regex_sel
+         | within_sel
+         | exwithin_sel
+         | same_sel
+
+// ---------------------------
+// LOGICAL OPERATIONS
+// ---------------------------
+
+?start: expr
+
+// Logical precedence (OR < XOR < AND < NOT)
+?expr: or_expr
+
+?or_expr: xor_expr
+        | or_expr OR_OP xor_expr      -> or_
+
+?xor_expr: and_expr
+         | xor_expr XOR_OP and_expr   -> xor_
+
+?and_expr: not_expr
+         | and_expr AND_OP not_expr   -> and_
+         | not_expr not_expr   -> and_
+
+?not_expr: NOT_OP not_expr            -> not_
+         | atom
+
+?atom: "(" expr ")"
+     | selection
+
+
+// Macro expansions
+// MACROS = {
+//     "acidic": "resname ASP GLU",
+//     "acyclic": "protein and not cyclic",
+//     "aliphatic": "resname ALA GLY ILE LEU VAL",
+//     "alpha": "protein and name CA",
+//     "amino": "protein",
+//     "aromatic": "resname HIS PHE TRP TYR",
+//     "basic": "resname ARG HIS LYS HSP",
+//     "bonded": "numbonds > 0",
+//     "buried": "resname ALA LEU VAL ILE PHE CYS MET TRP",
+//     "cg": "resname CYT C GUA G",
+//     "charged": "basic or acidic",
+//     "cyclic": "resname HIS PHE PRO TRP TYR",
+//     "glycan": "resname NAG BGLN FUC AFUC MAN AMAN BMA BMAN",
+//     "heme": "resname HEM HEME",
+//     "hydrophobic": "resname ALA LEU VAL ILE PRO PHE MET TRP",
+//     "ion": "resname AL BA CA CAL CD CES CLA CL CO CS CU CU1 CUA HG IN IOD K LIT MG MN3 MO3 MO4 MO5 MO6 NA NAW OC7 PB POT PT RB SOD TB TL WO4 YB ZN ZN1 ZN2",
+//     "ions": "ion",
+//     "large": "protein and not (small or medium)",
+//     "lipid": "resname DLPE DMPC DPPC GPC LPPC PALM PC PGCL POPC POPE",
+//     "lipids": "lipid",
+//     "medium": "resname VAL THR ASP ASN PRO CYS ASX PCA HYP",
+//     "neutral": "resname VAL PHE GLN TYR HIS CYS MET TRP ASX GLX PCA HYP",
+//     "noh": "not hydrogen",
+//     "polar": "protein and not hydrophobic",
+//     "protein": "protein",
+//     "purine": "resname ADE A GUA G",
+//     "pyrimidine": "resname CYT C THY T URA U",
+//     "small": "resname ALA GLY SER",
+//     "solvent": "not (protein or sugar or nucleic or lipid)",
+//     "sugar": "resname AGLC",
+//     "surface": "protein and not buried",
+//     "water": "waters",
+//     "drude": "type DRUD or type LP"
+// }
+
