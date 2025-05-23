@@ -17,8 +17,8 @@ _DNA_residues = {'DA': 'A', 'DC': 'C', 'DG': 'G', 'DT': 'T'}
 
 _RNA_residues = {'A': 'A', 'C': 'C', 'G': 'G', 'U': 'U'}
 
-#parser_rule = 'lalr'
-parser_rule = 'earley'
+parser_rule = 'lalr'
+#parser_rule = 'earley'
 with open("molscene/utils/selection_syntax.lark", "r") as f:
     Lark(f.read(), parser=parser_rule, debug=True)
 

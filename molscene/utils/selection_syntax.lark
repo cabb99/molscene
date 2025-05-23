@@ -42,21 +42,25 @@ COMMENT: /#[^\n]*/
 
 ?selection: bool_keyword
           | comparison_sel
-          | range_sel
+          | range_or_property_sel
           | regex_sel
           | within_sel
           | bonded_sel
           | sequence_sel
           | same_sel
-          | property_sel
           | "(" selection ")"
 
 //Range selection
 comparison_sel: math_expr (comparison_op math_expr)+   -> comparison_selection
 
-?range_sel: math_expr number_expr TO number_expr -> range_selection
-          | math_expr number_expr COLON number_expr -> range_selection
-          | math_expr number_expr COLON number_expr COLON number_expr -> stride_selection
+// Left-factored list-or-range
+?range_or_property_sel.10: selection_keyword range_branch                -> range_selection
+                         | selection_keyword selection_value+            -> property_selection
+
+// the three ways to write a numeric range
+range_branch: number_expr TO number_expr
+            | number_expr COLON number_expr
+            | number_expr COLON number_expr COLON number_expr
 
 // Regex selection
 regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_selection
@@ -80,8 +84,8 @@ same_sel: same_op selection_keyword AS expr -> same_selection
                     | VALUE          -> _value   
 
 // Property selection
-property_sel.-10: selection_keyword property_list                   -> property_selection
-property_list.-10: selection_value (COMMA? selection_value)*        -> property_list
+?property_single: math_expr number_expr
+// property_list.-10: property_single (COMMA? selection_value)+        -> property_list
 
 // --------------------------
 // Math Grammar
@@ -244,7 +248,7 @@ bool_keyword: bool_universal | bool_biomolecule | bool_residue | bool_atom | boo
 // --------------------------
 
 // Regex match
-REGEXP_OP : "=~"                 
+REGEXP_OP.1 : "=~"                 
 
 // Not
 NOT_OP    : "not"  | "!"        
@@ -279,7 +283,7 @@ EXWITHIN  : "exwithin"
 OF        : "of"
 BONDED    : "bonded"
 EXBONDED  : "exbonded"
-TO        : "to"    
+TO      : "to"    
 SEQUENCE  : "sequence"
 ?whithin_op: WITHIN | EXWITHIN
 ?bonded_op : BONDED | EXBONDED
