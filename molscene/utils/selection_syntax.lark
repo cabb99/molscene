@@ -54,8 +54,8 @@ COMMENT: /#[^\n]*/
 comparison_sel: math_expr (comparison_op math_expr)+   -> comparison_selection
 
 // Left-factored list-or-range
-?range_or_property_sel.10: selection_keyword range_branch                -> range_selection
-                         | selection_keyword selection_value+            -> property_selection
+?range_or_property_sel.10: math_expr range_branch                -> range_selection
+                         | math_expr selection_value+            -> property_selection
 
 // the three ways to write a numeric range
 range_branch: number_expr TO number_expr
@@ -417,4 +417,5 @@ E       : "e"
 VALUE.-10: /(?![-'"()])(?!(?:all|everything|none|nothing|protein|is_protein|nucleic|is_nucleic|dna|is_dna|rna|is_rna|water|waters|is_water|lipid|lipids|ion|ions|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|amino|purine|pyrimidine|hetero|cg|tA|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|ca|alpha|backbone|is_backbone|sidechain|is_sidechain|small|medium|large|buried|surface|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|=\~|not|!|or|\|\||\||and|\&\&|\&|xor|<=|le|>=|ge|==|=|eq|<|lt|>|gt|!=|ne|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|%|\*\*|\^|beta|occupancy|altloc|mass|charge|radius|type|element|symbol|\$|x|y|z|fx|fy|fz|vx|vy|vz|code|rescode|resc|name|index|bonds|numbonds|fragment|pfrag|nfrag|residue|resSeq|resname|resn|resid|resi|chainid|segment_id|segname|conformation|sin|cos|tan|asin|acos|atan|exp|log|log10|sqrt|sq|abs|pi|e)\b)(?!\d+(?:\.\d*)?(?:[eE][+-]?\d+)?\b)(?=[A-Za-z])[^()'"\s]+/   // Last resort for anything not matched by other rules (most greedy)
 
 //TODO: Allow comparisons == and != to be used with strings
-//TODO: 
+//TODO: Split rules for numeric properties and string properties 
+//TODO: Create rules for errors
