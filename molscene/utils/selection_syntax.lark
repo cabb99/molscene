@@ -162,25 +162,47 @@ SOLVENT    : "solvent"
 
 ?bool_biomolecule: PROTEIN | NUCLEIC | DNA | RNA | WATER | LIPID | ION | SUGAR | GLYCAN | HEME | DRUDE | SOLVENT
 
-// Residue Type
+// Residue Type aromaticity
 AROMATIC   : "aromatic"
 ALIPHATIC  : "aliphatic"
+
+// Residue Type polarity
 POLAR      : "polar"
 HYDROPHOBIC: "hydrophobic"
+
+// Residue Type charge
 CHARGED    : "charged"
 ACIDIC     : "acidic"
 BASIC      : "basic"
 NEUTRAL    : "neutral"
+
+// Residue Type ring structure
 ACYCLIC    : "acyclic"
 CYCLIC     : "cyclic"
-AMINO      : "amino"
+
+// Residue Type nucleotide size
 PURINE     : "purine"
 PYRIMIDINE : "pyrimidine"
-HETERO     : "hetero"
-CG         : "cg"
-TA         : "tA"
 
-?bool_residue: AROMATIC | ALIPHATIC | POLAR | HYDROPHOBIC | CHARGED | ACIDIC | BASIC | NEUTRAL | ACYCLIC | CYCLIC | AMINO | PURINE | PYRIMIDINE | HETERO | CG | TA
+// Residue Type nucleotide pair
+CG         : "cg"
+TA         : "ta"
+
+?bool_residue: AROMATIC | ALIPHATIC | POLAR | HYDROPHOBIC | CHARGED | ACIDIC | BASIC | NEUTRAL | ACYCLIC | CYCLIC | AMINO | PURINE | PYRIMIDINE | CG | TA
+// Size / Exposure
+SMALL      : "small"
+MEDIUM     : "medium"
+LARGE      : "large"
+
+?bool_size: SMALL | MEDIUM | LARGE
+
+// Exposure
+
+BURIED     : "buried"
+SURFACE    : "surface"
+?bool_exposure: BURIED | SURFACE
+
+
 
 // Atom Type
 CARBON     : "carbon"
@@ -210,19 +232,9 @@ SIDECHAIN  : "sidechain" | "is_sidechain"
 
 ?bool_structure: BACKBONE | SIDECHAIN | CALPHA
 
-// Size / Exposure
-SMALL      : "small"
-MEDIUM     : "medium"
-LARGE      : "large"
 
-?bool_size: SMALL | MEDIUM | LARGE
 
-// Exposure
 
-BURIED     : "buried"
-SURFACE    : "surface"
-
-?bool_exposure: BURIED | SURFACE
 
 // Secondary Structure
 HELIX          : "helix"
@@ -395,8 +407,13 @@ LOG10   : "log10"
 SQRT    : "sqrt"
 SQUARE  : "sq"
 ABS     : "abs"
+FLOOR   : "floor"
+CEIL    : "ceil"
+COSH    : "cosh"
+SINH    : "sinh"
+TANH    : "tanh"
 
-?function_name: SIN | COS | TAN | ASIN | ACOS | ATAN | EXP | LOG | LOG10 | SQRT | SQUARE | ABS
+?function_name: SIN | COS | TAN | ASIN | ACOS | ATAN | EXP | LOG | LOG10 | SQRT | SQUARE | ABS | CEIL | FLOOR | SINH | COSH | TANH
 
 // --------------------------
 // Constants
