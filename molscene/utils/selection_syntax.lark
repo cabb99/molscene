@@ -2,7 +2,7 @@
 // Imports & Ignored
 // --------------------------
 %import common.CNAME
-%import common.SIGNED_NUMBER
+%import common.NUMBER
 %import common.ESCAPED_STRING
 %import common.WS_INLINE
 %ignore WS_INLINE
@@ -82,7 +82,7 @@ sequence_value: /[a-zA-Z]+/
 same_sel: same_op selection_keyword AS expr -> same_selection
 
 ?selection_value.-10: ESCAPED_STRING -> escaped_string
-                    | SIGNED_NUMBER  -> number
+                    | number_expr
                     | STRING_VALUE   -> string_value   
 
 // Property selection
@@ -107,11 +107,11 @@ same_sel: same_op selection_keyword AS expr -> same_selection
 ?num_factor: num_factor _POW num_primary -> pow
            | num_primary
 
-?num_primary: SIGNED_NUMBER               -> number
+?num_primary: NUMBER               -> number
             | constant                    -> const
             | "-" num_primary             -> neg
             | function_name "(" number_expr ")" -> func
-            | "(" number_expr ")"         -> parens_n
+            | "(" number_expr ")"         
 
 
 
@@ -149,10 +149,10 @@ same_sel: same_op selection_keyword AS expr -> same_selection
             | num_factor _POW math_primary  -> pow
             | math_primary
 
-?math_primary: selection_keyword                   -> selection
-             | "-" math_primary                     -> neg_sel
-             | function_name "(" math_expr ")"     -> func_sel
-             | "(" math_expr ")"                   -> parens_sel
+?math_primary: selection_keyword                   -> selection_keyword
+             | "-" math_primary                     -> neg
+             | function_name "(" math_expr ")"     -> func
+             | "(" math_expr ")"                   
 
 // --------------------------
 // Boolean Keywords

@@ -334,6 +334,7 @@ if __name__ == "__main__":
         ("Math with cos", "cos(x) < 0.5"),
         ("Math with tan", "tan(x) > 1"),
         ("Complex math with functions", "sqrt(z^3-sin(x*y)^2) < 10"),
+        ("Complex comparison", "(1*1+1-1) < (1*x+2-2) < (3//3*3)"),
 
         # --- Wrong syntax examples ---
         ("Wrong syntax: missing operator", "101 102 103"),
