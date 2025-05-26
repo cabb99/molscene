@@ -238,7 +238,7 @@ if __name__ == "__main__":
         ("Residue id", "resid 4"),
         ("Index", "index 5"),
         ("Backbone", "backbone"),
-        ("Hetero", "hetero"),
+        ("acidic", "acidic"),
         ("All atoms", "all"),
         ("None atoms", "none"),
         ("Waters alias", "waters"),
@@ -253,10 +253,10 @@ if __name__ == "__main__":
         ("AND logic", "protein and water"),
         ("OR logic", "protein or water"),
         ("NOT logic", "not water"),
-        ("Default AND", "not water hetero"),
+        ("Default AND", "not water acidic"),
         ("Default AND with fields", "resname ALA PHE name CA CB"),
         ("Default AND with flags", "acidic calpha"),
-        ("Parentheses", "(protein or water) and not hetero"),
+        ("Parentheses", "(protein or water) and not acidic"),
         ("Nested NOT", "not not (protein and water)"),
         ("NOT with !", "!protein"),
 
@@ -304,7 +304,7 @@ if __name__ == "__main__":
         ("User variable complex", "within 8 of ($center 1 and @alanine)"),
 
         # --- Parentheses and complex logic ---
-        ("Parentheses", "(protein or water) and not hetero"),
+        ("Parentheses", "(protein or water) and not acidic"),
         ("Same residue as", "same residue as exwithin 4 of water"),
         ("Same resname as", "same resname as (protein within 6 of nucleic)"),
         ("Complex logic", "protein or water or all"),
@@ -317,7 +317,7 @@ if __name__ == "__main__":
 
         # ---Complex selections ---
         ("Complex selection", "protein and (resname ALA or resname GLY) and not water"),
-        ("Complex selection with parentheses", "(protein or water) and not hetero"),
+        ("Complex selection with parentheses", "(protein or water) and not acidic"),
         ("Complex selection with regex", 'resname "A.*" and name =~ "C.*"'),
         ("Complex selection with distance", "protein within 5 of (resname ALA or resname GLY)"),
         ("Complex selection with sequence", 'sequence "C..C" and resname ALA'),
@@ -335,6 +335,10 @@ if __name__ == "__main__":
         ("Math with tan", "tan(x) > 1"),
         ("Complex math with functions", "sqrt(z^3-sin(x*y)^2) < 10"),
 
+        # --- Wrong syntax examples ---
+        ("Wrong syntax: missing operator", "101 102 103"),
+
+
 
 
 
@@ -351,6 +355,20 @@ if __name__ == "__main__":
             print(tree.pretty())
         except exceptions.LarkError as e:
             print(f"Parse failed: {e.__class__.__name__}: {e}")
+            # More verbose error reporting
+            if hasattr(e, 'line') and hasattr(e, 'column'):
+                print(f"  At line {e.line}, column {e.column}")
+            if hasattr(e, 'pos_in_stream'):
+                pos = e.pos_in_stream
+                context = 20
+                start = max(0, pos - context)
+                end = min(len(sel), pos + context)
+                snippet = sel[start:end]
+                caret = ' ' * (pos - start) + '^'
+                print(f"  Context: ...{snippet}...")
+                print(f"              {caret}")
+            else:
+                print(f"  (No position info available)")
 
 # Macro expansions
 MACROS = {

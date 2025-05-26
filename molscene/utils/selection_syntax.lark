@@ -51,7 +51,9 @@ start: expr -> start
           | "(" selection ")"
 
 //Range selection
-comparison_sel: math_expr (comparison_op math_expr)+   -> comparison_selection
+?math_or_number_expr: math_expr | number_expr
+
+comparison_sel: math_or_number_expr (comparison_op math_or_number_expr)+  -> comparison_selection
 
 // Left-factored list-or-range
 ?range_or_property_sel.10: math_expr range_branch                -> range_selection
@@ -84,57 +86,73 @@ same_sel: same_op selection_keyword AS expr -> same_selection
                     | STRING_VALUE   -> string_value   
 
 // Property selection
-?property_single: math_expr number_expr
+// ?property_single: math_expr number_expr
 // property_list.-10: property_single (COMMA? selection_value)+        -> property_list
 
-// --------------------------
-// Math Grammar
-// --------------------------
+//───────────────────────────────────────────────────────────────────────────────
+// 1) Purely-numeric sub-grammar (no selection_keyword ever):
+//───────────────────────────────────────────────────────────────────────────────
+?number_expr: num_sum
 
-// Math expression with variables
-?math_expr: sum
+?num_sum: num_sum _PLUS num_term        -> add
+        | num_sum _MINUS num_term       -> sub
+        | num_term
 
-?sum: product
-    | sum _PLUS product              -> add
-    | sum _MINUS product             -> sub
+?num_term: num_term _TIMES num_factor   -> mul
+         | num_term _DIV num_factor     -> truediv
+         | num_term _INTEGER_DIV num_factor -> floordiv
+         | num_term _MOD num_factor     -> mod
+         | num_factor
 
-?product: power
-        | product _TIMES power       -> mul
-        | product _DIV power         -> truediv
-        | product _INTEGER_DIV power -> floordiv
-        | product _MOD power         -> mod
+?num_factor: num_factor _POW num_primary -> pow
+           | num_primary
 
-?power: value
-      | power _POW value             -> pow
+?num_primary: SIGNED_NUMBER               -> number
+            | constant                    -> const
+            | "-" num_primary             -> neg
+            | function_name "(" number_expr ")" -> func
+            | "(" number_expr ")"         -> parens_n
 
-?value: SIGNED_NUMBER                   -> number
-      | constant                        -> const
-      | "-" value                       -> neg
-      | function_name "(" math_expr ")" -> func
-      | selection_keyword               -> selection_keyword
-      | "(" math_expr ")"
 
-// Math expression with no variables
-?number_expr: number_sum
 
-?number_sum: number_product
-           | number_sum _PLUS number_product        -> add
-           | number_sum _MINUS number_product       -> sub
+//───────────────────────────────────────────────────────────────────────────────
+// 2) Mixed “math_expr”: must contain at least one selection_keyword
+//───────────────────────────────────────────────────────────────────────────────
+?math_expr: math_sum
 
-?number_product: number_power
-               | number_product _TIMES number_power -> mul
-               | number_product _DIV number_power   -> div
-               | number_product _INTEGER_DIV number_power -> int_div
-               | number_product _MOD number_power   -> mod
+// After the first token, *any* operator can mix with either sel_operand or pure number_expr:
 
-?number_power: number_value
-             | number_power _POW number_value       -> pow
+?math_sum: math_sum _PLUS math_term        -> add
+         | math_sum _MINUS math_term       -> sub
+         | math_sum _PLUS num_term        -> add
+         | math_sum _MINUS num_term       -> sub
+         | num_sum _PLUS math_term        -> add
+         | num_sum _MINUS math_term       -> sub
+         | math_term
 
-?number_value: SIGNED_NUMBER                       -> number
-             | constant                            -> const
-             | "-" number_value                    -> neg
-             | function_name "(" math_expr ")"     -> func
-             | "(" number_sum ")"
+?math_term: math_term _TIMES math_factor   -> mul
+          | math_term _DIV math_factor     -> truediv
+          | math_term _INTEGER_DIV math_factor -> floordiv
+          | math_term _MOD math_factor     -> mod
+          | math_term _TIMES num_factor   -> mul
+          | math_term _DIV num_factor     -> truediv
+          | math_term _INTEGER_DIV num_factor -> floordiv
+          | math_term _MOD num_factor     -> mod
+          | num_term _TIMES math_factor   -> mul
+          | num_term _DIV math_factor     -> truediv
+          | num_term _INTEGER_DIV math_factor -> floordiv
+          | num_term _MOD math_factor     -> mod
+          | math_factor
+
+?math_factor: math_factor _POW math_primary -> pow
+            | math_factor _POW num_primary  -> pow
+            | num_factor _POW math_primary  -> pow
+            | math_primary
+
+?math_primary: selection_keyword                   -> selection
+             | "-" math_primary                     -> neg_sel
+             | function_name "(" math_expr ")"     -> func_sel
+             | "(" math_expr ")"                   -> parens_sel
 
 // --------------------------
 // Boolean Keywords
