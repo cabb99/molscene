@@ -15,22 +15,22 @@ COMMENT: /#[^\n]*/
 // LOGICAL OPERATIONS
 // ---------------------------
 
-?start: expr
+start: expr -> start
 
 // Logical precedence (OR < XOR < AND < NOT)
 ?expr: or_expr
 
 ?or_expr: xor_expr
-        | or_expr OR_OP xor_expr      -> or_
+        | or_expr _OR_OP xor_expr      -> or_
 
 ?xor_expr: and_expr
-         | xor_expr XOR_OP and_expr   -> xor_
+         | xor_expr _XOR_OP and_expr   -> xor_
 
 ?and_expr: not_expr
-         | and_expr AND_OP not_expr   -> and_
+         | and_expr _AND_OP not_expr   -> and_
          | not_expr not_expr   -> and_
 
-?not_expr: NOT_OP not_expr            -> not_
+?not_expr: _NOT_OP not_expr            -> not_
          | atom
 
 ?atom: "(" expr ")"
@@ -79,9 +79,9 @@ sequence_value: /[a-zA-Z]+/
 // Same selection
 same_sel: same_op selection_keyword AS expr -> same_selection
 
-?selection_value.-10: ESCAPED_STRING -> _escaped_string
-                    | SIGNED_NUMBER  -> _number
-                    | VALUE          -> _value   
+?selection_value.-10: ESCAPED_STRING -> escaped_string
+                    | SIGNED_NUMBER  -> number
+                    | STRING_VALUE   -> string_value   
 
 // Property selection
 ?property_single: math_expr number_expr
@@ -95,40 +95,40 @@ same_sel: same_op selection_keyword AS expr -> same_selection
 ?math_expr: sum
 
 ?sum: product
-    | sum PLUS product              -> add
-    | sum MINUS product             -> sub
+    | sum _PLUS product              -> add
+    | sum _MINUS product             -> sub
 
 ?product: power
-        | product TIMES power       -> mul
-        | product DIV power         -> div
-        | product INTEGER_DIV power -> int_div
-        | product MOD power         -> mod
+        | product _TIMES power       -> mul
+        | product _DIV power         -> truediv
+        | product _INTEGER_DIV power -> floordiv
+        | product _MOD power         -> mod
 
 ?power: value
-      | power POW value             -> pow
+      | power _POW value             -> pow
 
-?value: SIGNED_NUMBER               -> number
-      | constant                      -> const
-      | "-" value                   -> neg
+?value: SIGNED_NUMBER                   -> number
+      | constant                        -> const
+      | "-" value                       -> neg
       | function_name "(" math_expr ")" -> func
-      | selection_keyword
+      | selection_keyword               -> selection_keyword
       | "(" math_expr ")"
 
 // Math expression with no variables
 ?number_expr: number_sum
 
 ?number_sum: number_product
-           | number_sum PLUS number_product        -> add
-           | number_sum MINUS number_product       -> sub
+           | number_sum _PLUS number_product        -> add
+           | number_sum _MINUS number_product       -> sub
 
 ?number_product: number_power
-               | number_product TIMES number_power -> mul
-               | number_product DIV number_power   -> div
-               | number_product INTEGER_DIV number_power -> int_div
-               | number_product MOD number_power   -> mod
+               | number_product _TIMES number_power -> mul
+               | number_product _DIV number_power   -> div
+               | number_product _INTEGER_DIV number_power -> int_div
+               | number_product _MOD number_power   -> mod
 
 ?number_power: number_value
-             | number_power POW number_value       -> pow
+             | number_power _POW number_value       -> pow
 
 ?number_value: SIGNED_NUMBER                       -> number
              | constant                            -> const
@@ -188,7 +188,7 @@ PYRIMIDINE : "pyrimidine"
 CG         : "cg"
 TA         : "ta"
 
-?bool_residue: AROMATIC | ALIPHATIC | POLAR | HYDROPHOBIC | CHARGED | ACIDIC | BASIC | NEUTRAL | ACYCLIC | CYCLIC | AMINO | PURINE | PYRIMIDINE | CG | TA
+?bool_residue: AROMATIC | ALIPHATIC | POLAR | HYDROPHOBIC | CHARGED | ACIDIC | BASIC | NEUTRAL | ACYCLIC | CYCLIC | PURINE | PYRIMIDINE | CG | TA
 // Size / Exposure
 SMALL      : "small"
 MEDIUM     : "medium"
@@ -263,14 +263,14 @@ bool_keyword: bool_universal | bool_biomolecule | bool_residue | bool_atom | boo
 REGEXP_OP.1 : "=~"                 
 
 // Not
-NOT_OP    : "not"  | "!"        
+_NOT_OP    : "not"  | "!"        
 
 // LOGICAL OPERATORS
-OR_OP     : "or"   | "||" | "|"
-AND_OP    : "and"  | "&&" | "&"
-XOR_OP    : "xor"         
+_OR_OP     : "or"   | "||" | "|"
+_AND_OP    : "and"  | "&&" | "&"
+_XOR_OP    : "xor"         
 
-?logical_op: OR_OP | AND_OP | NOT_OP
+?logical_op: _OR_OP | _AND_OP | _XOR_OP | _NOT_OP
 
 // COMPARISON OPERATORS
 LE        : "<="   | "le"     
@@ -303,21 +303,21 @@ SEQUENCE  : "sequence"
 ?sequence_op: SEQUENCE
 
 // MATH OPERATORS
-PLUS        : "+"           
-MINUS       : "-"           
-TIMES       : "*"           
-DIV         : "/"           
-INTEGER_DIV : "//"          
-MOD         : "%"           
-POW         : "**" | "^"
-?math_op : PLUS | MINUS | TIMES | DIV | MOD | POW
+_PLUS        : "+"           
+_MINUS       : "-"           
+_TIMES       : "*"           
+_DIV         : "/"           
+_INTEGER_DIV : "//"          
+_MOD         : "%"           
+_POW         : "**" | "^"
+?math_op : _PLUS | _MINUS | _TIMES | _DIV | _INTEGER_DIV | _MOD | _POW
 
 ?operation_keyword: math_op
                 | logical_op
                 | comparison_op
                 | range_op
                 | REGEXP_OP
-                | NOT_OP
+                | _NOT_OP
 
 
 // --------------------------
@@ -431,7 +431,7 @@ E       : "e"
 
 //VALUE.-10: /(?!(to|:)\b)[^\s()]+/       // Last resort for anything not matched by other rules (most greedy)
 //VALUE.-10: /(?![-'"()])(?!(?:all|none|protein|nucleic|dna|rna|water|lipid|ion|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|amino|purine|pyrimidine|hetero|cg|tA|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|backbone|sidechain|small|medium|large|buried|surface|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|=\~|not|or|and|xor|<=|>=|==|<|>|!=|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|\/\/|%|\*\*|beta|occupancy|altloc|mass|charge|radius|type|\$|x|y|z|fx|fy|fz|vx|vy|vz|code|name|index|bonds|fragment|pfrag|nfrag|residue|resname|resid|chainid|segment_id|conformation|sin|cos|tan|asin|acos|atan|exp|log|log10|sqrt|sq|abs)\b)[^()'"\s]+/       // Last resort for anything not matched by other rules (most greedy)
-VALUE.-10: /(?![-'"()])(?!(?:all|everything|none|nothing|protein|is_protein|nucleic|is_nucleic|dna|is_dna|rna|is_rna|water|waters|is_water|lipid|lipids|ion|ions|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|amino|purine|pyrimidine|hetero|cg|tA|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|ca|alpha|backbone|is_backbone|sidechain|is_sidechain|small|medium|large|buried|surface|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|=\~|not|!|or|\|\||\||and|\&\&|\&|xor|<=|le|>=|ge|==|=|eq|<|lt|>|gt|!=|ne|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|%|\*\*|\^|beta|occupancy|altloc|mass|charge|radius|type|element|symbol|\$|x|y|z|fx|fy|fz|vx|vy|vz|code|rescode|resc|name|index|bonds|numbonds|fragment|pfrag|nfrag|residue|resSeq|resname|resn|resid|resi|chainid|segment_id|segname|conformation|sin|cos|tan|asin|acos|atan|exp|log|log10|sqrt|sq|abs|pi|e)\b)(?!\d+(?:\.\d*)?(?:[eE][+-]?\d+)?\b)(?=[A-Za-z])[^()'"\s]+/   // Last resort for anything not matched by other rules (most greedy)
+STRING_VALUE.-10: /(?![-'"()])(?!(?:all|everything|none|nothing|protein|is_protein|nucleic|is_nucleic|dna|is_dna|rna|is_rna|water|waters|is_water|lipid|lipids|ion|ions|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|amino|purine|pyrimidine|hetero|cg|tA|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|ca|alpha|backbone|is_backbone|sidechain|is_sidechain|small|medium|large|buried|surface|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|=\~|not|!|or|\|\||\||and|\&\&|\&|xor|<=|le|>=|ge|==|=|eq|<|lt|>|gt|!=|ne|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|%|\*\*|\^|beta|occupancy|altloc|mass|charge|radius|type|element|symbol|\$|x|y|z|fx|fy|fz|vx|vy|vz|code|rescode|resc|name|index|bonds|numbonds|fragment|pfrag|nfrag|residue|resSeq|resname|resn|resid|resi|chainid|segment_id|segname|conformation|sin|cos|tan|asin|acos|atan|exp|log|log10|sqrt|sq|abs|pi|e)\b)(?!\d+(?:\.\d*)?(?:[eE][+-]?\d+)?\b)(?=[A-Za-z])[^()'"\s]+/   // Last resort for anything not matched by other rules (most greedy)
 
 //TODO: Allow comparisons == and != to be used with strings
 //TODO: Split rules for numeric properties and string properties 
