@@ -248,24 +248,24 @@ def test_transformer():
 
     EXAMPLES = [
     # --- Simple flags and terms ---
-    # ("Simple flag: protein", "protein"),
-    # ("Simple flag: water", "water"),
-    # ("Simple field: name CA", "name CA"),
-    # ("Multiple names", "name CA CB"),
-    # ("Multiple resnames", "resname ALA GLY"),
-    # ("Residue id", "resid 4"),
-    # ("Index", "index 5"),
-    # ("Backbone", "backbone"),
-    # ("acidic", "acidic"),
-    # ("All atoms", "all"),
-    # ("None atoms", "none"),
-    # ("Waters alias", "waters"),
-    # ("Is_protein alias", "is_protein"),
-    # ("Is_water alias", "is_water"),
-    # ("Everything alias", "everything"),
-    # ("Nothing alias", "nothing"),
-    # ("Name with quotes 2", 'name "CA"'),
-    # ("Name with quotes 3", 'name "CA" "CB" "CA CB"'),
+    ("Simple flag: protein", "protein"),
+    ("Simple flag: water", "water"),
+    ("Simple field: name CA", "name CA"),
+    ("Multiple names", "name CA CB"),
+    ("Multiple resnames", "resname ALA GLY"),
+    ("Residue id", "resid 4"),
+    ("Index", "index 5"),
+    ("Backbone", "backbone"),
+    ("acidic", "acidic"),
+    ("All atoms", "all"),
+    ("None atoms", "none"),
+    ("Waters alias", "waters"),
+    ("Is_protein alias", "is_protein"),
+    ("Is_water alias", "is_water"),
+    ("Everything alias", "everything"),
+    ("Nothing alias", "nothing"),
+    ("Name with quotes 2", 'name "CA"'),
+    ("Name with quotes 3", 'name "CA" "CB" "CA CB"'),
 
     # --- Logic and default AND ---
     ("AND logic", "protein and water"),
@@ -303,9 +303,9 @@ def test_transformer():
     ("Reverse binary selection (eq)", "1 eq name"),
 
     # --- Regular expressions ---
-    ("Regex on resname", 'resname "A.*"'),
+    #("Regex on resname", 'resname "A.*"'),
     #("Regex on sequence", 'sequence "MI.*DKQ"'), #TODO
-    #("Regex on name", 'name =~ "C.*"'), #TODO
+    ("Regex on name", 'name =~ "C.*"'), #TODO
     #("Regex on name with AND", '(name =~ "C.*") and all'), #TODO
 
     # --- Distance-based selections ---
@@ -360,7 +360,7 @@ def test_transformer():
 
 
     # 1) build the parser (no transformer yet)
-    grammar_path = os.path.join(os.path.dirname(__file__), "../utils/selection_syntax.lark")
+    grammar_path = os.path.join(os.path.dirname(__file__), "selection_syntax.lark")
     with open(grammar_path) as f:
         grammar_text = f.read()
     base_parser = Lark(grammar_text, parser='lalr', propagate_positions=True, debug =True, start=['start', 'expr'])
@@ -371,9 +371,6 @@ def test_transformer():
     transformer = PandasTransformer(df, parser=base_parser)
 
     
-    # with open("molscene/utils/selection_syntax.lark", "r") as f:
-    #     parser = Lark(f.read(), parser='lalr', transformer=PandasTransformer(df), debug=True)
-
     for example in EXAMPLES:
         description, sel = example
         print(f"Testing: {description}")
