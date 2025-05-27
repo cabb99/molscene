@@ -65,7 +65,7 @@ comparison_sel: math_or_number_expr (comparison_op math_or_number_expr)+  -> com
              | number_expr _COLON number_expr _COLON number_expr
 
 // Regex selection
-regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_selection
+regex_sel: math_expr _REGEXP_OP ESCAPED_STRING -> regex_selection
 
 // Within selection
 ?within_sel: whithin_op number_expr _OF expr     -> within_selection
@@ -75,11 +75,11 @@ regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_selection
 
 // Sequence selection
 sequence_value: /[a-zA-Z]+/
-?sequence_sel: sequence_op ESCAPED_STRING -> sequence_selection_regex
-             | sequence_op sequence_value -> sequence_selection
+?sequence_sel: _SEQUENCE ESCAPED_STRING -> sequence_selection_regex
+             | _SEQUENCE sequence_value -> sequence_selection
 
 // Same selection
-same_sel: same_op selection_keyword AS expr -> same_selection
+same_sel: _SAME selection_keyword _AS expr -> same_selection
 
 ?selection_value.-10: ESCAPED_STRING -> escaped_string
                     | number_expr
@@ -279,7 +279,7 @@ bool_keyword: bool_universal | bool_biomolecule | bool_residue | bool_atom | boo
 // --------------------------
 
 // Regex match
-REGEXP_OP.1 : "=~"                 
+_REGEXP_OP.1 : "=~"                 
 
 // Not
 _NOT_OP    : "not"  | "!"        
@@ -307,19 +307,17 @@ COMMA     : ","
 ?range_op : _TO | _COLON | COMMA
 
 // COMPARISON TOKENS
-SAME      : "same"
-AS        : "as"
+_SAME      : "same"
+_AS        : "as"
 WITHIN    : "within"
 EXWITHIN  : "exwithin"
 _OF        : "of"
 BONDED    : "bonded"
 EXBONDED  : "exbonded"
 _TO      : "to"    
-SEQUENCE  : "sequence"
+_SEQUENCE  : "sequence"
 ?whithin_op: WITHIN | EXWITHIN
 ?bonded_op : BONDED | EXBONDED
-?same_op: SAME
-?sequence_op: SEQUENCE
 
 // MATH OPERATORS
 _PLUS        : "+"           
@@ -335,7 +333,7 @@ _POW         : "**" | "^"
                 | logical_op
                 | comparison_op
                 | range_op
-                | REGEXP_OP
+                | _REGEXP_OP
                 | _NOT_OP
 
 

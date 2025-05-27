@@ -131,8 +131,9 @@ class PandasTransformer(Transformer):
             sel &= (series - start) % step == 0
         return sel
 
-    def regex_selection(self, series, _, pattern):
+    def regex_selection(self, series, pattern):
         logging.debug(f"regex_selection() called with series: {repr(series)}, pattern: {repr(pattern)}")
+        pattern = pattern.value
         pattern = pattern[1:-1] if pattern.startswith('"') else pattern
         return series.astype(str).str.contains(pattern, regex=True)
 
@@ -165,11 +166,11 @@ class PandasTransformer(Transformer):
         logging.debug(f"sequence_selection() called with pattern: {repr(pattern)}")
         return self.df['sequence'].str.contains(pattern)
 
-    def same_selection(self, _, col_token, __, mask):
-        logging.debug(f"same_selection() called with col_token: {repr(col_token)}, mask: {repr(mask)}")
-        col = col_token.value
-        vals = self.df.loc[mask, col].unique()
-        return self.df[col].isin(vals)
+    def same_selection(self, column, mask):
+        logging.debug(f"same_selection() called with col_token: {repr(column)}, mask: {repr(mask)}")
+        selection = self.selection_keyword(column)
+        vals = self.df.loc[mask, column.value].unique()
+        return selection.isin(vals)
 
     def _expand_macro(self, expr, seen=None):
         """Recursively expand macro references in an expression string."""
@@ -306,7 +307,7 @@ def test_transformer():
     #("Regex on resname", 'resname "A.*"'),
     #("Regex on sequence", 'sequence "MI.*DKQ"'), #TODO
     ("Regex on name", 'name =~ "C.*"'), #TODO
-    #("Regex on name with AND", '(name =~ "C.*") and all'), #TODO
+    ("Regex on name with AND", '(name =~ "C.*") and all'),
 
     # --- Distance-based selections ---
     ("Within distance", "within 5 of water"),
@@ -336,7 +337,7 @@ def test_transformer():
     # ---Complex selections ---
     ("Complex selection", "protein and (resname ALA or resname GLY) and not water"),
     ("Complex selection with parentheses", "(protein or water) and not acidic"),
-    # ("Complex selection with regex", 'resname "A.*" and name =~ "C.*"'), #TODO
+    ("Complex selection with regex", 'resname =~ "A.*" and name =~ "C.*"'), #TODO
     ("Complex selection with distance", "protein within 5 of (resname ALA or resname GLY)"),
     # ("Complex selection with sequence", 'sequence "C..C" and resname ALA'), #TODO
     # ("Complex selection with macro", "@alanine and within 5 of water"), #TODO
