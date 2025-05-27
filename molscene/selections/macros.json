@@ -1,0 +1,380 @@
+{
+  "macros": {
+    "hidden": {
+      "_std_aa": {
+        "name": "_std_aa",
+        "synonyms": [],
+        "short": "standard amino acids",
+        "description": "The twenty standard amino acid residue names.",
+        "definition": "resname ALA ARG ASN ASP CYS GLN GLU GLY HIS ILE LEU LYS MET PHE PRO SER THR TRP TYR VAL"
+      },
+      "_nonstd_aa": {
+        "name": "_nonstd_aa",
+        "synonyms": [],
+        "short": "non-standard amino acids",
+        "description": "Common non-standard amino acid residue names.",
+        "definition": "resname ASX GLX CSO CYX HIP HID HIE HSD HSE HSP MSE CME SEC SEP TPO PTR PHD XLE XAA MEN CSB"
+      },
+      "_nucleobase": {
+        "name": "_nucleobase",
+        "synonyms": [],
+        "short": "A, G, C, T, U bases",
+        "description": "Purine and pyrimidine nucleobases (adenine, guanine, cytosine, thymine, uracil).",
+        "definition": "resname ADE GUN CYT THY URA"
+      },
+      "_nucleotide": {
+        "name": "_nucleotide",
+        "synonyms": [],
+        "short": "nucleotides",
+        "description": "Mono- and deoxy-nucleotides (A, C, G, T, U variants).",
+        "definition": "resname DA DC DG DT DU A C G T U"
+      },
+      "_nucleoside": {
+        "name": "_nucleoside",
+        "synonyms": [],
+        "short": "nucleosides",
+        "description": "All recognized nucleosides and their phosphate derivatives.",
+        "definition": "resname ADN AMP ADP ATP AGS CMP A2P A3P CTN C2P C3P C5P CDP CTP GMP 5GP GDP GTP THM TMP TPP TTP URI UMP UDP UTP"
+      },
+      "_pdb_ions": {
+        "name": "_pdb_ions",
+        "synonyms": [],
+        "short": "PDB ions",
+        "description": "Ions recognized by the PDB (e.g. Na⁺, K⁺, Ca²⁺, Zn²⁺, …).",
+        "definition": "resname AL BA CA CD CL CO CS CU CU1 CUA HG IN IOD K MG MN MN3 NA PB PT RB TB TL WO4 YB ZN"
+      },
+      "_charmm_ions": {
+        "name": "_charmm_ions",
+        "synonyms": ["ion_other"],
+        "short": "CHARMM ions",
+        "description": "Additional ion names from CHARMM force fields.",
+        "definition": "resname CAL CES CLA POT SOD ZN2"
+      }
+    },
+    "biomolecules": {
+      "protein": {
+        "name": "protein",
+        "synonyms": ["aminoacid","is_protein"],
+        "short": "all amino acids",
+        "description": "All standard and non-standard amino acids (must have a CA atom).",
+        "definition": "_std_aa or _nonstd_aa"
+      },
+      "nucleic": {
+        "name": "nucleic",
+        "synonyms": [],
+        "short": "all nucleic residues",
+        "description": "All nucleobases, nucleotides, and nucleosides.",
+        "definition": "_nucleobase or _nucleotide or _nucleoside"
+      },
+      "dna": {
+        "name": "dna",
+        "synonyms": [],
+        "short": "DNA residues",
+        "description": "All DNA nucleotides (deoxy- forms only).",
+        "definition": "resname DA DC DG DT DU"
+      },
+      "rna": {
+        "name": "rna",
+        "synonyms": [],
+        "short": "RNA residues",
+        "description": "All RNA nucleotides (ribose forms only).",
+        "definition": "resname A C G U T"
+      },
+      "water": {
+          "name": "water",
+          "synonyms": ["waters", "is_water"],
+          "description": [
+            "Crystallographic & MD water molecules",
+            "",
+            "**PDB‐recognized**:",
+            "- HOH ([PDB link](http://www.pdb.org/pdb/ligand/ligandsummary.do?hetId=HOH))",
+            "- DOD ([PDB link](http://www.pdb.org/pdb/ligand/ligandsummary.do?hetId=DOD))",
+            "",
+            "**MD force-field types**:",
+            "- WAT, TIP3, H2O, OH2, TIP, TIP2, TIP4",
+            "",
+            "_Note_: HH0, OHH, and SOL are omitted due to naming conflicts."
+          ],
+          "definition": "resname HOH DOD WAT TIP3 H2O OH2 TIP TIP2 TIP4"
+      },
+      "lipid": {
+        "name": "lipid",
+        "synonyms": ["lipids"],
+        "short": "lipid residues",
+        "description": "Common lipid residue names from PDB and CHARMM.",
+        "definition": "resname GPE LPP OLA SDS STE DLPE DMPC LPPC OLEO PALM PCGL POPC POPE"
+      },
+      "ion": {
+        "name": "ion",
+        "synonyms": ["ions"],
+        "short": "all ions",
+        "description": "All PDB and CHARMM ions.",
+        "definition": "_pdb_ions or _charmm_ions"
+      },
+      "sugar": {
+        "name": "sugar",
+        "synonyms": [],
+        "short": "sugar residues",
+        "description": "Common sugar names (glucose, galactose, …).",
+        "definition": "resname GLC GLO BGC AGLC"
+      },
+      "glycan": {
+        "name": "glycan",
+        "synonyms": [],
+        "short": "glycan residues",
+        "description": "Common glycan and oligosaccharide names.",
+        "definition": "resname NAG BGLN FUC AFUC MAN AMAN BMA BMAN"
+      },
+      "heme": {
+        "name": "heme",
+        "synonyms": [],
+        "short": "heme groups",
+        "description": "Common heme and porphyrin variants.",
+        "definition": "resname HEM HEME"
+      },
+      "drude": {
+        "name": "drude",
+        "synonyms": [],
+        "short": "Drude particles",
+        "description": "Drude oscillator atom types (LP or DRUD).",
+        "definition": "type DRUD or type LP"
+      },
+      "solvent": {
+        "name": "solvent",
+        "synonyms": [],
+        "short": "non-biomolecule",
+        "description": "Anything other than protein, sugar, nucleic or lipid.",
+        "definition": "not (protein or sugar or nucleic or lipid)"
+      }
+    },
+    "residue_types_aromaticity": {
+      "aromatic": {
+        "name": "aromatic",
+        "synonyms": [],
+        "short": "aromatic residues",
+        "description": "Aromatic amino acids: HIS, PHE, TRP, TYR.",
+        "definition": "resname HIS PHE TRW TYR"
+      },
+      "aliphatic": {
+        "name": "aliphatic",
+        "synonyms": [],
+        "short": "aliphatic residues",
+        "description": "Aliphatic amino acids: ALA, GLY, ILE, LEU, VAL.",
+        "definition": "resname ALA GLY ILE LEU VAL"
+      }
+    },
+    "residue_types_polarity": {
+      "polar": {
+        "name": "polar",
+        "synonyms": [],
+        "short": "polar residues",
+        "description": "Polar protein residues (not hydrophobic).",
+        "definition": "protein and not hydrophobic"
+      },
+      "hydrophobic": {
+        "name": "hydrophobic",
+        "synonyms": [],
+        "short": "hydrophobic residues",
+        "description": "Hydrophobic amino acids: ALA, LEU, VAL, ILE, PRO, PHE, MET, TRP.",
+        "definition": "resname ALA LEU VAL ILE PRO PHE MET TRP"
+      }
+    },
+    "residue_types_charge": {
+      "charged": {
+        "name": "charged",
+        "synonyms": [],
+        "short": "charged residues",
+        "description": "Charged residues: basic or acidic.",
+        "definition": "basic or acidic"
+      },
+      "acidic": {
+        "name": "acidic",
+        "synonyms": [],
+        "short": "acidic residues",
+        "description": "Acidic amino acids: ASP, GLU.",
+        "definition": "resname ASP GLU"
+      },
+      "basic": {
+        "name": "basic",
+        "synonyms": [],
+        "short": "basic residues",
+        "description": "Basic amino acids: ARG, HIS, LYS, HSP.",
+        "definition": "resname ARG HIS LYS HSP"
+      },
+      "neutral": {
+        "name": "neutral",
+        "synonyms": [],
+        "short": "neutral residues",
+        "description": "Neutral residues: VAL, PHE, GLN, TYR, HIS, CYS, MET, TRP, ASX, GLX, PCA, HYP.",
+        "definition": "resname VAL PHE GLN TYR HIS CYS MET TRP ASX GLX PCA HYP"
+      }
+    },
+    "residue_types_cyclic": {
+      "acyclic": {
+        "name": "acyclic",
+        "synonyms": [],
+        "short": "acyclic residues",
+        "description": "Protein residues that are not cyclic.",
+        "definition": "protein and not cyclic"
+      },
+      "cyclic": {
+        "name": "cyclic",
+        "synonyms": [],
+        "short": "cyclic residues",
+        "description": "Cyclic amino acids: HIS, PHE, PRO, TRP, TYR.",
+        "definition": "resname HIS PHE PRO TRW TYR"
+      }
+    },
+    "residue_types_nucleotide_size": {
+      "purine": {
+        "name": "purine",
+        "synonyms": [],
+        "short": "purine bases",
+        "description": "Purine nucleobases: DA, A, DG, G.",
+        "definition": "resname DA A DG G"
+      },
+      "pyrimidine": {
+        "name": "pyrimidine",
+        "synonyms": [],
+        "short": "pyrimidine bases",
+        "description": "Pyrimidine nucleobases: DC, C, DT, T, DU, U.",
+        "definition": "resname DC C DT T DU U"
+      }
+    },
+    "residue_types_nucleotide_pairs": {
+      "cg": {
+        "name": "cg",
+        "synonyms": [],
+        "short": "C/G bases",
+        "description": "Cytosine and guanine bases: DC, C, DG, G.",
+        "definition": "resname DC C DG G"
+      },
+      "ta": {
+        "name": "ta",
+        "synonyms": [],
+        "short": "T/A bases",
+        "description": "Thymine/adenine bases: DT, T, DU, U, DA, A.",
+        "definition": "resname DT T DU U DA A"
+      }
+    },
+    "residue_types_nonpolymer": {
+      "hetero": {
+        "name": "hetero",
+        "synonyms": [],
+        "short": "heteroatom",
+        "description": "Any heteroatom (placeholder, X is a generic symbol).",
+        "definition": "type HETAM"
+      }
+    },
+    "residue_types_exposed": {
+      "buried": {
+        "name": "buried",
+        "synonyms": [],
+        "description": [
+          "Residues defined for the 'buried' flag in ProDy",
+          "Automatically extracted from `prody.flags.DEFAULTS['buried']`.",
+          "Residues: ALA, CYS, ILE, LEU, MET, PHE, TRP, VAL"
+        ],
+        "definition": "resname ALA CYS ILE LEU MET PHE TRP VAL"
+      },
+      "surface": {
+        "name": "surface",
+        "synonyms": [],
+        "description": [
+          "Residues defined for the 'surface' flag in ProDy",
+          "Automatically extracted from `prody.flags.DEFAULTS['surface']`.",
+          "Residues: ARG, ASN, ASP, GLN, GLU, GLY, HIS, LYS, PRO, SER, THR, TYR"
+        ],
+        "definition": "resname ARG ASN ASP GLN GLU GLY HIS LYS PRO SER THR TYR"
+      }
+    },
+    "residue_types_size": {
+      "small": {
+        "name": "small",
+        "synonyms": [],
+        "description": [
+          "Residues defined for the 'small' flag in ProDy",
+          "Automatically extracted from `prody.flags.DEFAULTS['small']`.",
+          "Residues: ALA, GLY, SER"
+        ],
+        "definition": "resname ALA GLY SER"
+      },
+      "medium": {
+        "name": "medium",
+        "synonyms": [],
+        "description": [
+          "Residues defined for the 'medium' flag in ProDy",
+          "Automatically extracted from `prody.flags.DEFAULTS['medium']`.",
+          "Residues: ASN, ASP, CYS, PRO, THR, VAL"
+        ],
+        "definition": "resname ASN ASP CYS PRO THR VAL"
+      },
+      "large": {
+        "name": "large",
+        "synonyms": [],
+        "description": [
+          "Residues defined for the 'large' flag in ProDy",
+          "Automatically extracted from `prody.flags.DEFAULTS['large']`.",
+          "Residues: ARG, GLN, GLU, HIS, ILE, LEU, LYS, MET, PHE, TRP, TYR"
+        ],
+        "definition": "resname ARG GLN GLU HIS ILE LEU LYS MET PHE TRP TYR"
+      }
+    },
+    "residue_types_nucleobase": {
+      "nucleobase": {
+        "name": "nucleobase",
+        "synonyms": [],
+        "description": [
+          "Residues defined for the 'nucleobase' flag in ProDy",
+          "Automatically extracted from `prody.flags.DEFAULTS['nucleobase']`.",
+          "Residues: ADE, CYT, GUN, THY, URA"
+        ],
+        "definition": "resname ADE CYT GUN THY URA"
+      }
+    },
+    "residue_types_backbone": {
+      "backbone": {
+        "name": "backbone",
+        "synonyms": ["bb"],
+        "description": [
+          "Residues defined for the 'backbone' flag in ProDy",
+          "Automatically extracted from `prody.flags.DEFAULTS['backbone']`.",
+          "Residues: C, CA, N, O"
+        ],
+        "definition": "name C CA N O"
+      },
+      "backbonefull": {
+        "name": "backbonefull",
+        "synonyms": ["bbfull"],
+        "description": [
+          "Residues defined for the 'backbonefull' flag in ProDy",
+          "Automatically extracted from `prody.flags.DEFAULTS['backbonefull']`.",
+          "Atoms: C, CA, H, H1, H2, H3, N, O, OXT"
+        ],
+        "definition": "name C CA H H1 H2 H3 N O OXT"
+      },
+      "calpha": {
+        "name": "calpha",
+        "synonyms": ["ca"],
+        "short": "Cα atoms of protein residues",
+        "description": [
+          "Cα atoms of :term:`protein` residues, same as selection",
+          "``'name CA and protein'``"
+        ],
+        "definition": "name CA and protein"
+      }
+    },
+    "residue_types_sidechain": {
+      "sidechain": {
+        "name": "sidechain",
+        "synonyms": ["sc"],
+        "short": "side-chain atoms of protein residues",
+        "description": [
+          "side-chain atoms of protein residues",
+          "Same as: 'protein and not backbonefull'"
+        ],
+        "definition": "protein and not backbonefull"
+      }
+    }
+  }
+}
