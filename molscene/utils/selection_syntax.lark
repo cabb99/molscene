@@ -60,18 +60,18 @@ comparison_sel: math_or_number_expr (comparison_op math_or_number_expr)+  -> com
                          | math_expr selection_value+            -> property_selection
 
 // the three ways to write a numeric range
-range_branch: number_expr TO number_expr
-            | number_expr COLON number_expr
-            | number_expr COLON number_expr COLON number_expr
+?range_branch: number_expr _TO number_expr
+             | number_expr _COLON number_expr
+             | number_expr _COLON number_expr _COLON number_expr
 
 // Regex selection
 regex_sel: selection_keyword REGEXP_OP ESCAPED_STRING -> regex_selection
 
 // Within selection
-?within_sel: whithin_op number_expr OF expr     -> within_selection
+?within_sel: whithin_op number_expr _OF expr     -> within_selection
 
 // Bonded selection
-?bonded_sel: bonded_op number_expr TO expr -> bonded_selection
+?bonded_sel: bonded_op number_expr _TO expr -> bonded_selection
 
 // Sequence selection
 sequence_value: /[a-zA-Z]+/
@@ -162,7 +162,8 @@ same_sel: same_op selection_keyword AS expr -> same_selection
 ALL        : "all" | "everything"                 
 NONE       : "none" | "nothing"                   
 
-?bool_universal: ALL | NONE
+?bool_universal: ALL
+               | NONE 
 
 // Universal keywords
 PROTEIN    : "protein" | "is_protein"
@@ -301,19 +302,19 @@ NE        : "!="   | "ne"
 
 // RANGE OPERATORS
      
-COLON     : ":"           
+_COLON     : ":"           
 COMMA     : ","           
-?range_op : TO | COLON | COMMA
+?range_op : _TO | _COLON | COMMA
 
 // COMPARISON TOKENS
 SAME      : "same"
 AS        : "as"
 WITHIN    : "within"
 EXWITHIN  : "exwithin"
-OF        : "of"
+_OF        : "of"
 BONDED    : "bonded"
 EXBONDED  : "exbonded"
-TO      : "to"    
+_TO      : "to"    
 SEQUENCE  : "sequence"
 ?whithin_op: WITHIN | EXWITHIN
 ?bonded_op : BONDED | EXBONDED
