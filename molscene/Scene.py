@@ -11,9 +11,7 @@ import re
 from scipy.spatial import cKDTree, distance
 import logging
 from . import utils
-
-
-
+from .selection.transformer import PandasTransformer
 
 __author__ = 'Carlos Bueno'
 
@@ -70,27 +68,27 @@ class Scene(pandas.DataFrame):
     _columns = {'recname': 'Record name',
                 'serial': 'Atom serial number',
                 'name': 'Atom name',
-                'altLoc': 'Alternate location indicator',
-                'resName': 'Residue name',
-                'chainID': 'Chain identifier',
-                'resSeq': 'Residue sequence number',
+                'altloc': 'Alternate location indicator',
+                'resname': 'Residue name',
+                'chain': 'Chain identifier',
+                'resid': 'Residue sequence number',
                 'iCode': 'Code for insertion of residues',
                 'x': 'Orthogonal coordinates for X in Angstroms',
                 'y': 'Orthogonal coordinates for Y in Angstroms',
                 'z': 'Orthogonal coordinates for Z in Angstroms',
                 'occupancy': 'Occupancy',
-                'tempFactor': 'Temperature factor',
+                'beta': 'Temperature factor',
                 'element': 'Element symbol',
                 'charge': 'Charge on the atom',
                 'model': 'Model number',
                 # 'res_index': 'Residue index',
                 # 'chain_index': 'Chain index',
-                'molecule': 'Molecule name',
-                'resname': 'Residue name'}
+                'molecule': 'Molecule name'}
     
     
+
     # Initialization
-    def __init__(self, particles, altLoc='A', model=1, **kwargs):
+    def __init__(self, particles, altloc='A', model=1, infer_columns = True, **kwargs):
         """Create an empty scene from particles.
         The Scene object is a wraper of a pandas DataFrame with extra information"""
         super().__init__(particles)
@@ -106,14 +104,14 @@ class Scene(pandas.DataFrame):
         else:
             raise ValueError("Incorrect particle format")
         
-        if 'chainID' not in self.columns:
-            self['chainID'] = ['A'] * len(self)
-        if 'resSeq' not in self.columns:
-            self['resSeq'] = [1] * len(self)
+        if 'chain' not in self.columns:
+            self['chain'] = ['A'] * len(self)
+        if 'resid' not in self.columns:
+            self['resid'] = [1] * len(self)
         if 'iCode' not in self.columns:
             self['iCode'] = [''] * len(self)
-        if 'altLoc' not in self.columns:
-            self['altLoc'] = [''] * len(self)
+        if 'altloc' not in self.columns:
+            self['altloc'] = [''] * len(self)
         if 'model' not in self.columns:
             self['model'] = [1] * len(self)
         if 'name' not in self.columns:
@@ -122,22 +120,22 @@ class Scene(pandas.DataFrame):
             self['element'] = ['C'] * len(self)
         if 'occupancy' not in self.columns:
             self['occupancy'] = [1.0] * len(self)
-        if 'tempFactor' not in self.columns:
-            self['tempFactor'] = [1.0] * len(self)
-        if 'resName' not in self.columns:
-            self['resName'] = [''] * len(self)
+        if 'beta' not in self.columns:
+            self['beta'] = [1.0] * len(self)
+        if 'resname' not in self.columns:
+            self['resname'] = [''] * len(self)
         
         # Create an integer index for the chains
         if 'chain_index' not in self.columns:
-            chain_map = {b: a for a, b in enumerate(self['chainID'].unique())}
-            self['chain_index'] = self['chainID'].map(chain_map).astype(int)
+            chain_map = {b: a for a, b in enumerate(self['chain'].unique())}
+            self['chain_index'] = self['chain'].map(chain_map).astype(int)
 
         # Create an integer index for the residues
         if 'res_index' not in self.columns:
             # Construct a global unique residue key
             residue_keys = (
                 self['chain_index'].astype(str) +
-                self['resSeq'].astype(str) +
+                self['resid'].astype(str) +
                 self['iCode'].astype(str)
             )
 
@@ -151,6 +149,7 @@ class Scene(pandas.DataFrame):
         # Create an integer index for the atoms
         if 'atom_index' not in self.columns:
             self['atom_index'] = range(len(self))
+
 
         # Add metadata
         for attr, value in kwargs.items():
@@ -220,7 +219,7 @@ class Scene(pandas.DataFrame):
         >>> frame10 = scene.frames[10]
         """
         return _FrameAccessor(self)
-
+    
     def iterframes(self):
         """
         Iterate over frames.
@@ -261,12 +260,29 @@ class Scene(pandas.DataFrame):
         frames = self.get_coordinate_frames()
         self.set_coordinates(frames[frame_index])
 
-    def select(self, **kwargs):
+    def select(self, selstr: str = "", macros: dict = None, **kwargs) -> "Scene":
+        """
+        Atom selection.
+
+        Parameters
+        ----------
+        selstr : str
+            A VMD selection string.
+        macros : dict, optional
+            Mapping of @macro names to selection strings.
+        **kwargs : any
+            User variables (e.g. $var) passed into the selection.
+
+        Returns
+        -------
+        Scene
+            A new Scene containing only the selected atoms.
+        """
         index = self.index
         sel = pandas.Series([True] * len(index), index=index)
         for key in kwargs:
-            if key == 'altLoc':
-                sel &= (self['altLoc'].isin(['', '.'] + kwargs['altLoc']))
+            if key == 'altloc':
+                sel &= (self['altloc'].isin(['', '.'] + kwargs['altloc']))
             elif key == 'model':
                 sel &= (self['model'].isin(kwargs['model']))
             else:
@@ -279,16 +295,25 @@ class Scene(pandas.DataFrame):
             print(index[index.duplicated()])
             self._meta['duplicated'] = True
 
-        return Scene(self[sel], **self._meta)
+        # selector = VMDSelector(self, macros, **kwargs)
+        # mask = selector(selstr)
+        
+        # # Join the mask with the selection
+        # sel &= mask
 
-    def split_models(self):
-        # TODO: Implement splitting based on model and altLoc.
-        # altLoc can be present in multiple regions (1zir)
-        pass
+        # mask is a boolean Series over self.index
+        return Scene(self.loc[sel].copy(), **self._meta)
 
-    #        for m in self['model'].unique():
-    #            for a in sel:
-    #                pass
+
+
+    # def split_models(self):
+    #     # TODO: Implement splitting based on model and altLoc.
+    #     # altLoc can be present in multiple regions (1zir)
+    #     pass
+
+    # #        for m in self['model'].unique():
+    # #            for a in sel:
+    # #                pass
 
     @classmethod
     def from_pdb(cls, file, **kwargs):
@@ -296,16 +321,16 @@ class Scene(pandas.DataFrame):
             l = dict(recname=line[0:6].strip(),
                      serial=line[6:11],
                      name=line[12:16].strip(),
-                     altLoc=line[16:17].strip(),
-                     resName=line[17:20].strip(),
-                     chainID=line[21:22].strip(),
-                     resSeq=line[22:26],
+                     altloc=line[16:17].strip(),
+                     resname=line[17:20].strip(),
+                     chain=line[21:22].strip(),
+                     resid=line[22:26],
                      iCode=line[26:27].strip(),
                      x=line[30:38],
                      y=line[38:46],
                      z=line[46:54],
                      occupancy=line[54:60].strip(),
-                     tempFactor=line[60:66].strip(),
+                     beta=line[60:66].strip(),
                      element=line[76:78].strip(),
                      charge=line[78:80].strip())
             return l
@@ -330,9 +355,9 @@ class Scene(pandas.DataFrame):
                     elif header == "MODRES":
                         m = dict(recname=str(line[0:6]).strip(),
                                  idCode=str(line[7:11]).strip(),
-                                 resName=str(line[12:15]).strip(),
-                                 chainID=str(line[16:17]).strip(),
-                                 resSeq=int(line[18:22]),
+                                 resname=str(line[12:15]).strip(),
+                                 chain=str(line[16:17]).strip(),
+                                 resid=int(line[18:22]),
                                  iCode=str(line[22:23]).strip(),
                                  stdRes=str(line[24:27]).strip(),
                                  comment=str(line[29:70]).strip())
@@ -340,20 +365,20 @@ class Scene(pandas.DataFrame):
                     elif header == "MODEL ":
                         model_number = int(line[10:14])
         pdb_atoms = pandas.DataFrame(lines)
-        pdb_atoms = pdb_atoms[['recname', 'serial', 'name', 'altLoc',
-                               'resName', 'chainID', 'resSeq', 'iCode',
-                               'x', 'y', 'z', 'occupancy', 'tempFactor',
+        pdb_atoms = pdb_atoms[['recname', 'serial', 'name', 'altloc',
+                               'resname', 'chain', 'resid', 'iCode',
+                               'x', 'y', 'z', 'occupancy', 'beta',
                                'element', 'charge']]
         
         # Apply type conversions and set default values
         pdb_atoms['serial'] = pandas.to_numeric(pdb_atoms['serial'], errors='coerce').fillna(0).astype(int)
-        pdb_atoms['resSeq'] = pandas.to_numeric(pdb_atoms['resSeq'], errors='coerce').fillna(0).astype(int)
+        pdb_atoms['resid'] = pandas.to_numeric(pdb_atoms['resid'], errors='coerce').fillna(0).astype(int)
         pdb_atoms['x'] = pandas.to_numeric(pdb_atoms['x'], errors='coerce').fillna(0.0)
         pdb_atoms['y'] = pandas.to_numeric(pdb_atoms['y'], errors='coerce').fillna(0.0)
         pdb_atoms['z'] = pandas.to_numeric(pdb_atoms['z'], errors='coerce').fillna(0.0)
         pdb_atoms['occupancy'] = pandas.to_numeric(pdb_atoms['occupancy'], errors='coerce').fillna(1.0)
-        pdb_atoms['tempFactor'] = pandas.to_numeric(pdb_atoms['tempFactor'], errors='coerce').fillna(1.0)
-        pdb_atoms['charge'] = pandas.to_numeric(pdb_atoms['tempFactor'], errors='coerce').fillna(0.0)
+        pdb_atoms['beta'] = pandas.to_numeric(pdb_atoms['beta'], errors='coerce').fillna(1.0)
+        pdb_atoms['charge'] = pandas.to_numeric(pdb_atoms['beta'], errors='coerce').fillna(0.0)
         pdb_atoms['model'] = model_numbers
         pdb_atoms['molecule'] = 0
 
@@ -411,16 +436,16 @@ class Scene(pandas.DataFrame):
         # Rename columns to pdb convention
         _cif_pdb_rename = {'id': 'serial',
                            'label_atom_id': 'name',
-                           'label_alt_id': 'altLoc',
-                           'label_comp_id': 'resName',
-                           'label_asym_id': 'chainID',
-                           'label_seq_id': 'resSeq',
+                           'label_alt_id': 'altloc',
+                           'label_comp_id': 'resname',
+                           'label_asym_id': 'chain',
+                           'label_seq_id': 'resid',
                            'pdbx_PDB_ins_code': 'iCode',
                            'Cartn_x': 'x',
                            'Cartn_y': 'y',
                            'Cartn_z': 'z',
                            'occupancy': 'occupancy',
-                           'B_iso_or_equiv': 'tempFactor',
+                           'B_iso_or_equiv': 'beta',
                            'type_symbol': 'element',
                            'pdbx_formal_charge': 'charge',
                            'pdbx_PDB_model_num': 'model'}
@@ -436,13 +461,13 @@ class Scene(pandas.DataFrame):
                 pass
 
         cif_atoms['serial'] = pandas.to_numeric(cif_atoms['serial'], errors='coerce').fillna(0).astype(int)
-        cif_atoms['resSeq'] = pandas.to_numeric(cif_atoms['resSeq'], errors='coerce').fillna(0).astype(int)
+        cif_atoms['resid'] = pandas.to_numeric(cif_atoms['resid'], errors='coerce').fillna(0).astype(int)
         cif_atoms['x'] = pandas.to_numeric(cif_atoms['x'], errors='coerce').fillna(0.0)
         cif_atoms['y'] = pandas.to_numeric(cif_atoms['y'], errors='coerce').fillna(0.0)
         cif_atoms['z'] = pandas.to_numeric(cif_atoms['z'], errors='coerce').fillna(0.0)
         cif_atoms['occupancy'] = pandas.to_numeric(cif_atoms['occupancy'], errors='coerce').fillna(1.0)
-        cif_atoms['tempFactor'] = pandas.to_numeric(cif_atoms['tempFactor'], errors='coerce').fillna(1.0)
-        cif_atoms['charge'] = pandas.to_numeric(cif_atoms['tempFactor'], errors='coerce').fillna(0.0)
+        cif_atoms['beta'] = pandas.to_numeric(cif_atoms['beta'], errors='coerce').fillna(1.0)
+        cif_atoms['charge'] = pandas.to_numeric(cif_atoms['beta'], errors='coerce').fillna(0.0)
                 
         return cls(cif_atoms, **kwargs)
 
@@ -483,9 +508,9 @@ class Scene(pandas.DataFrame):
         pdb = fixer
         """ Parses a pdb in the openmm format and outputs a table that contains all the information
         on a pdb file """
-        cols = ['recname', 'serial', 'name', 'altLoc',
-                'resName', 'chainID', 'resSeq', 'iCode',
-                'x', 'y', 'z', 'occupancy', 'tempFactor',
+        cols = ['recname', 'serial', 'name', 'altloc',
+                'resname', 'chain', 'resid', 'iCode',
+                'x', 'y', 'z', 'occupancy', 'beta',
                 'element', 'charge']
         data = []
 
@@ -508,9 +533,9 @@ class Scene(pandas.DataFrame):
         pdb = fixer
         """ Parses a pdb in the openmm format and outputs a table that contains all the information
         on a pdb file """
-        cols = ['recname', 'serial', 'name', 'altLoc',
-                'resName', 'chainID', 'resSeq', 'iCode',
-                'x', 'y', 'z', 'occupancy', 'tempFactor',
+        cols = ['recname', 'serial', 'name', 'altloc',
+                'resname', 'chain', 'resid', 'iCode',
+                'x', 'y', 'z', 'occupancy', 'beta',
                 'element', 'charge']
         data = []
 
@@ -554,16 +579,16 @@ class Scene(pandas.DataFrame):
         chainID = []
         name_generator = utils.chain_name_generator()
         for scene in scene_list:
-            if 'chainID' not in scene:
+            if 'chain' not in scene:
                 chainID += [next(name_generator)]*len(scene)
             else:
-                chains = list(scene['chainID'].unique())
+                chains = list(scene['chain'].unique())
                 chains.sort()
                 chain_replace = {chain: next(name_generator) for chain in chains}
-                chainID += list(scene['chainID'].replace(chain_replace))
+                chainID += list(scene['chain'].replace(chain_replace))
         name_generator.close()
         model = pandas.concat(scene_list)
-        model['chainID'] = chainID
+        model['chain'] = chainID
         model.index = range(len(model))
         return cls(model)
 
@@ -578,16 +603,16 @@ class Scene(pandas.DataFrame):
         pdb_table = self.copy()
         pdb_table['serial'] = np.arange(1, len(self) + 1) if 'serial' not in pdb_table else pdb_table['serial']
         pdb_table['name'] = 'A' if 'name' not in pdb_table else pdb_table['name']
-        pdb_table['altLoc'] = '' if 'altLoc' not in pdb_table else pdb_table['altLoc']
-        pdb_table['resName'] = 'R' if 'resName' not in pdb_table else pdb_table['resName']
-        pdb_table['chainID'] = 'C' if 'chainID' not in pdb_table else pdb_table['chainID']
-        pdb_table['resSeq'] = 1 if 'resSeq' not in pdb_table else pdb_table['resSeq']
+        pdb_table['altloc'] = '' if 'altloc' not in pdb_table else pdb_table['altloc']
+        pdb_table['resname'] = 'R' if 'resname' not in pdb_table else pdb_table['resname']
+        pdb_table['chain'] = 'C' if 'chain' not in pdb_table else pdb_table['chain']
+        pdb_table['resid'] = 1 if 'resid' not in pdb_table else pdb_table['resid']
         pdb_table['iCode'] = '' if 'iCode' not in pdb_table else pdb_table['iCode']
         assert 'x' in pdb_table.columns, 'Coordinate x not in particle definition'
         assert 'y' in pdb_table.columns, 'Coordinate x not in particle definition'
         assert 'z' in pdb_table.columns, 'Coordinate x not in particle definition'
         pdb_table['occupancy'] = 0 if 'occupancy' not in pdb_table else pdb_table['occupancy']
-        pdb_table['tempFactor'] = 0 if 'tempFactor' not in pdb_table else pdb_table['tempFactor']
+        pdb_table['beta'] = 0 if 'beta' not in pdb_table else pdb_table['beta']
         pdb_table['element'] = '' if 'element' not in pdb_table else pdb_table['element']
         pdb_table['charge'] = 0 if 'charge' not in pdb_table else pdb_table['charge']
 
@@ -597,12 +622,12 @@ class Scene(pandas.DataFrame):
             molecules = self['molecule'].unique()
             cc_d = dict(zip(molecules, cc))
             # cc_d = dict(zip(range(1, len(cc) + 1), cc))
-            pdb_table['chainID'] = self['molecule'].replace(cc_d)
+            pdb_table['chain'] = self['molecule'].replace(cc_d)
 
         # Write pdb file
         lines = ''
         for i, atom in pdb_table.iterrows():
-            line = f'ATOM  {i%100000:>5} {atom["name"]:^4} {atom["resName"]:<3} {atom["chainID"]}{atom["resSeq"]:>4}' + \
+            line = f'ATOM  {i%100000:>5} {atom["name"]:^4} {atom["resname"]:<3} {atom["chain"]}{atom["resid"]:>4}' + \
                    '    ' + \
                    f'{atom.x:>8.3f}{atom.y:>8.3f}{atom.z:>8.3f}' + ' ' * 22 + f'{atom.element:2}' + ' ' * 2
             assert len(line) == 80, f'An item in the atom table is longer than expected\n{line}'
@@ -657,33 +682,29 @@ class Scene(pandas.DataFrame):
         pdbx_table = self.copy()
         pdbx_table['serial'] = np.arange(1, len(self) + 1) if 'serial' not in pdbx_table else pdbx_table['serial']
         pdbx_table['name'] = 'A' if 'name' not in pdbx_table else pdbx_table['name']
-        pdbx_table['altLoc'] = '?' if 'altLoc' not in pdbx_table else pdbx_table['altLoc']
-        pdbx_table['resName'] = 'R' if 'resName' not in pdbx_table else pdbx_table['resName']
-        pdbx_table['chainID'] = 'C' if 'chainID' not in pdbx_table else pdbx_table['chainID']
-        pdbx_table['resSeq'] = 1 if 'resSeq' not in pdbx_table else pdbx_table['resSeq']
+        pdbx_table['altloc'] = '?' if 'altloc' not in pdbx_table else pdbx_table['altloc']
+        pdbx_table['resname'] = 'R' if 'resname' not in pdbx_table else pdbx_table['resname']
+        pdbx_table['chain'] = 'C' if 'chain' not in pdbx_table else pdbx_table['chain']
+        pdbx_table['resid'] = 1 if 'resid' not in pdbx_table else pdbx_table['resid']
         pdbx_table['resIC'] = 1 if 'resIC' not in pdbx_table else pdbx_table['resIC']
         pdbx_table['iCode'] = '' if 'iCode' not in pdbx_table else pdbx_table['iCode']
         assert 'x' in pdbx_table.columns, 'Coordinate x not in particle definition'
         assert 'y' in pdbx_table.columns, 'Coordinate x not in particle definition'
         assert 'z' in pdbx_table.columns, 'Coordinate x not in particle definition'
         pdbx_table['occupancy'] = 0 if 'occupancy' not in pdbx_table else pdbx_table['occupancy']
-        pdbx_table['tempFactor'] = 0 if 'tempFactor' not in pdbx_table else pdbx_table['tempFactor']
+        pdbx_table['beta'] = 0 if 'beta' not in pdbx_table else pdbx_table['beta']
         pdbx_table['element'] = 'C' if 'element' not in pdbx_table else pdbx_table['element']
         pdbx_table['model'] = 0 if 'model' not in pdbx_table else pdbx_table['model']
 
         # If the column is a string convert it to a float
-        for col in ['serial', 'resSeq', 'resIC', 'model','charge']:
+        for col in ['serial', 'resid', 'resIC', 'model','charge']:
             pdbx_table[col] = pandas.to_numeric(pdbx_table[col], errors='coerce').fillna(0).astype(int)
-        for col in ['x', 'y', 'z', 'occupancy', 'tempFactor']:
+        for col in ['x', 'y', 'z', 'occupancy', 'beta']:
             pdbx_table[col] = pandas.to_numeric(pdbx_table[col], errors='coerce').fillna(0.0)
             
         #If the column is a string convert and empty string to a dot
-        for col in ['name', 'altLoc', 'resName', 'chainID', 'iCode', 'element']:
+        for col in ['name', 'altloc', 'resname', 'chain', 'iCode', 'element']:
             pdbx_table[col] = pdbx_table[col].str.strip().replace('', '.')
-
-        # print(pdbx_table)
-        # pdbx_table.fillna('.', inplace=True)
-        # pdbx_table.replace(' ', '.', inplace=True)
 
         lines = ""
         lines += "data_pdbx\n"
@@ -731,10 +752,10 @@ class Scene(pandas.DataFrame):
                 return val
 
         for col in ['serial',
-                    'name', 'resName', 'chainID', 'resSeq', 'iCode',
-                    'name', 'resName', 'chainID', 'resSeq','iCode',
+                    'name', 'resname', 'chain', 'resid', 'iCode',
+                    'name', 'resname', 'chain', 'resid','iCode',
                     'x', 'y', 'z',
-                    'occupancy', 'tempFactor',
+                    'occupancy', 'beta',
                     'element', 'charge', 'model']:
             pdbx_table['line'] += " "
             pdbx_table['line'] += pdbx_table[col].apply(cif_quote)
@@ -775,7 +796,7 @@ class Scene(pandas.DataFrame):
         gro_atoms = self.copy()
 
         # Ensure required columns are present
-        required_columns = ['resSeq', 'resName', 'name', 'x', 'y', 'z']
+        required_columns = ['resid', 'resname', 'name', 'x', 'y', 'z']
         for col in required_columns:
             if col not in gro_atoms.columns:
                 raise ValueError(f"Column '{col}' is required for writing GRO file.")
@@ -785,9 +806,9 @@ class Scene(pandas.DataFrame):
             gro_atoms['serial'] = np.arange(1, len(gro_atoms) + 1)
 
         # Convert types and handle formatting
-        gro_atoms['resSeq'] = gro_atoms['resSeq'].astype(int) % 100000  # Limit to 5 digits
+        gro_atoms['resid'] = gro_atoms['resid'].astype(int) % 100000  # Limit to 5 digits
         gro_atoms['serial'] = gro_atoms['serial'].astype(int) % 100000  # Limit to 5 digits
-        gro_atoms['resName'] = gro_atoms['resName'].astype(str).str[:5]
+        gro_atoms['resname'] = gro_atoms['resname'].astype(str).str[:5]
         gro_atoms['name'] = gro_atoms['name'].astype(str).str[:5]
 
         # Divide coordinates by 10 to convert from Angstroms to nanometers
@@ -813,7 +834,7 @@ class Scene(pandas.DataFrame):
             f.write('Generated by Scene.write_gro\n')
             f.write(f'{len(gro_atoms):5d}\n')
             for _, atom in gro_atoms.iterrows():
-                line = f"{atom['resSeq']:5d}{atom['resName']:<5}{atom['name']:>5}{atom['serial']:5d}" \
+                line = f"{atom['resid']:5d}{atom['resname']:<5}{atom['name']:>5}{atom['serial']:5d}" \
                     f"{atom['x']:8.3f}{atom['y']:8.3f}{atom['z']:8.3f}\n"
                 f.write(line)
             # Write box dimensions
@@ -837,14 +858,14 @@ class Scene(pandas.DataFrame):
         Raises:
         -------
         ValueError
-            If 'chainID' column is missing.
+            If 'chain' column is missing.
         """
-        if 'chainID' not in self.columns:
-            raise ValueError("Column 'chainID' is required to write GRO files per chain.")
+        if 'chain' not in self.columns:
+            raise ValueError("Column 'chain' is required to write GRO files per chain.")
 
-        unique_chains = self['chainID'].unique()
+        unique_chains = self['chain'].unique()
         for chain_id in unique_chains:
-            chain_data = self[self['chainID'] == chain_id]
+            chain_data = self[self['chain'] == chain_id]
             chain_scene = Scene(chain_data, **self._meta)
             output_filename = f"{base_filename}_{chain_id}.gro"
             if verbose:
@@ -863,17 +884,17 @@ class Scene(pandas.DataFrame):
         Returns
         -------
         dict
-            Mapping from chainID to sequence string.
+            Mapping from chain to sequence string.
         """
         seq_dict = {}
-        # Group by chainID and resSeq
-        grouped = self.sort_values(['chainID', 'resSeq']).drop_duplicates(
-            subset=['chainID', 'resSeq']
+        # Group by chain and resSeq
+        grouped = self.sort_values(['chain', 'resid']).drop_duplicates(
+            subset=['chain', 'resid']
         )
-        for chain_id, group in grouped.groupby('chainID'):
+        for chain_id, group in grouped.groupby('chain'):
             seq = ''
             for _, row in group.iterrows():
-                res = str(row['resName']).strip()
+                res = str(row['resname']).strip()
                 # Try protein, then DNA, then RNA
                 if res in _protein_residues:
                     seq += _protein_residues[res]
@@ -896,10 +917,10 @@ class Scene(pandas.DataFrame):
         out = self.copy()
         if 'modified_residues' in self._meta:
             for i, row in out.modified_residues.iterrows():
-                sel = ((out['resName'] == row['resName']) &
-                       (out['chainID'] == row['chainID']) &
-                       (out['resSeq'] == row['resSeq']))
-                out.loc[sel, 'resName'] = row['stdRes']
+                sel = ((out['resname'] == row['resname']) &
+                       (out['chain'] == row['chain']) &
+                       (out['resid'] == row['resid']))
+                out.loc[sel, 'resname'] = row['stdRes']
         return out
 
     def rotate(self, rotation_matrix):
@@ -1116,13 +1137,12 @@ class Scene(pandas.DataFrame):
 
     @property
     def _constructor(self):
-        # Check if the DataFrame contains all the required columns
-        if all(col in self.columns for col in self._columns.keys()):
-            return Scene
-        else:
-            logging.debug("Warning: Missing required columns. Returning a standard DataFrame.")
-            logging.debug([col for col in self._columns.keys() if col not in self.columns])
-            return pandas.DataFrame
+        def _create_scene_if_complete(particles, *args, **kwargs):
+            if all([col in particles.columns for col in self._columns.keys()]):
+                return Scene(particles, *args, infer_columns=False, **kwargs)
+            else:
+                return pandas.DataFrame(particles, *args, **kwargs)
+        return _create_scene_if_complete
 
     # def __getattr__(self, attr):
     #     if '_meta' in self.__dict__ and attr in self._meta:

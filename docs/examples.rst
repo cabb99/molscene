@@ -24,10 +24,10 @@ The array should be of shape (N,3) for N atoms, and the DataFrame should have co
     (3, 3)
     >>> scene
     <Scene (3)>
-       x  y  z chainID  ...  resName chain_index res_index  atom_index
-    0  0  0  0       A  ...                    0         0           0
-    1  1  0  0       A  ...                    0         0           1
-    2  0  1  0       A  ...                    0         0           2
+       x  y  z chain  resid  ... beta resname  chain_index res_index atom_index
+    0  0  0  0     A      1  ...  1.0                    0         0          0
+    1  1  0  0     A      1  ...  1.0                    0         0          1
+    2  0  1  0     A      1  ...  1.0                    0         0          2
     <BLANKLINE>
     [3 rows x 16 columns]
 
@@ -42,11 +42,11 @@ The array should be of shape (N,3) for N atoms, and the DataFrame should have co
     >>> scene.get_coordinates().shape
     (3, 3)
     >>> scene
-        <Scene (3)>
-       x  y  z chainID  ...  resName chain_index res_index  atom_index
-    0  0  0  0       A  ...                    0         0           0
-    1  1  0  0       A  ...                    0         0           1
-    2  0  1  0       A  ...                    0         0           2
+    <Scene (3)>
+       x  y  z chain  resid  ... beta resname  chain_index res_index atom_index
+    0  0  0  0     A      1  ...  1.0                    0         0          0
+    1  1  0  0     A      1  ...  1.0                    0         0          1
+    2  0  1  0     A      1  ...  1.0                    0         0          2
     <BLANKLINE>
     [3 rows x 16 columns]
 
@@ -99,7 +99,7 @@ Every ``Scene`` has a private ``_meta`` dict you can read or write via attribute
     'CB'
     >>> scene._meta
     {'author': 'CB', 'description': 'Test peptide'}
-    >>> sub = scene.select(chainID=['A'])
+    >>> sub = scene.select('chain A')
     >>> sub.author
     'CB'
 

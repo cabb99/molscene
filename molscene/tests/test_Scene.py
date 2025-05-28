@@ -59,11 +59,11 @@ def test_from_pdb(pdbfile):
     atom = s.loc[1576]
     #print(atom)
     assert atom['serial'] == 1577
-    assert atom['resSeq'] == 1170
+    assert atom['resid'] == 1170
     assert atom['name'] == 'SD'
-    assert atom['resName'] == 'MET'
-    assert atom['chainID'] == 'A'
-    assert atom['altLoc'] == 'G'
+    assert atom['resname'] == 'MET'
+    assert atom['chain'] == 'A'
+    assert atom['altloc'] == 'G'
 
 def test_from_cif(ciffile):
     s = Scene.from_cif(ciffile)
@@ -71,17 +71,17 @@ def test_from_cif(ciffile):
     atom = s.loc[1576]
     #print(atom)
     assert atom['serial'] == 1577
-    assert atom['resSeq'] == 170
+    assert atom['resid'] == 170
     assert atom['name'] == 'SD'
-    assert atom['resName'] == 'MET'
-    assert atom['chainID'] == 'A'
-    assert atom['altLoc'] == 'G'
+    assert atom['resname'] == 'MET'
+    assert atom['chain'] == 'A'
+    assert atom['altloc'] == 'G'
 
 
 def test_select(pdbfile):
     s = Scene.from_pdb(pdbfile)
     # print(s['altLoc'].unique())
-    assert len(s.select(altLoc=['A','C','E','G'])) == 1613
+    assert len(s.select(altloc=['A','C','E','G'])) == 1613
 
 
 
@@ -116,15 +116,15 @@ def test_metadata():
 def test_from_fixPDB(pdbfile):
     s = Scene.from_fixPDB(pdbfile)
     assert len(s) == 2849
-    sel = s[(s['name'] == 'SD') & (s['resSeq'] == 1170)]
+    sel = s[(s['name'] == 'SD') & (s['resid'] == 1170)]
     assert len(sel) == 1
     atom = sel.iloc[0]
     #print(atom)
     assert atom['serial'] != 1577
-    assert atom['resSeq'] == 1170
+    assert atom['resid'] == 1170
     assert atom['name'] == 'SD'
-    assert atom['resName'] == 'MET'
-    assert atom['chainID'] == 'A'
+    assert atom['resname'] == 'MET'
+    assert atom['chain'] == 'A'
 
 def test_from_fixer(pdbfile):
     import pdbfixer
@@ -136,15 +136,15 @@ def test_from_fixer(pdbfile):
     fixer.addMissingHydrogens(7.0)
     s = Scene.from_fixer(fixer)
     assert len(s) == 2849
-    sel = s[(s['name'] == 'SD') & (s['resSeq'] == 1170)]
+    sel = s[(s['name'] == 'SD') & (s['resid'] == 1170)]
     assert len(sel) == 1
     atom = sel.iloc[0]
     #print(atom)
     assert atom['serial'] != 1577
-    assert atom['resSeq'] == 1170
+    assert atom['resid'] == 1170
     assert atom['name'] == 'SD'
-    assert atom['resName'] == 'MET'
-    assert atom['chainID'] == 'A'
+    assert atom['resname'] == 'MET'
+    assert atom['chain'] == 'A'
 
 def test_get_coordinates(pdbfile):
     s = Scene.from_pdb(pdbfile)
@@ -197,8 +197,8 @@ class Test_Read_Write():
         assert (len(s1) == len(s2)), f"The number of particles before reading ({len(s1)}) and after writing ({len(s2)})" \
                                      f" are different.\nCheck the file: {fname}"
 
-    @pytest.mark.parametrize('reader', ['pdb', 'cif'])
     @pytest.mark.parametrize('writer', ['pdb', 'cif'])
+    @pytest.mark.parametrize('reader', ['pdb', 'cif'])
     @pytest.mark.parametrize('mol', ['1r70', '1zbl', '1zir'])
     def test_convert(self, reader, writer, mol, tmp_path):
         self._convert(reader, writer, mol, tmp_path)
