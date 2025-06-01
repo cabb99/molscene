@@ -8,6 +8,7 @@ dependencies:
   - numpy
   - pandas
   - pdbfixer
+  - lark
     # Testing
   - pytest
   - pytest-cov
