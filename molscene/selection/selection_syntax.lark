@@ -11,6 +11,8 @@
 COMMENT: /#[^\n]*/
 %ignore COMMENT
 
+SINGLE_QUOTED_STRING : /'(?:\\.|[^'\\])*'/
+
 // ---------------------------
 // LOGICAL OPERATIONS
 // ---------------------------
@@ -93,6 +95,7 @@ sequence_value: /[a-zA-Z]+/
 same_sel: _SAME selection_keyword _AS expr -> same_selection
 
 ?selection_value.-10: ESCAPED_STRING -> escaped_string
+                    | SINGLE_QUOTED_STRING -> single_quoted_string
                     | number_expr
                     | STRING_VALUE   -> string_value   
 

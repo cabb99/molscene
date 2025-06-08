@@ -260,6 +260,11 @@ class PandasTransformer(Transformer):
         logging.debug(f"escaped_string() called with token: {repr(token)}")
         value = token.value.strip('"').replace('\\"', '"')
         return value
+    
+    def single_quote_string(self, token):
+        logging.debug(f"single_quote_string() called with token: {repr(token)}")
+        value = token.value.strip("'").replace("\\'", "'")
+        return value
 
     def number(self, token):
         logging.debug(f"number() called with token: {repr(token)}")
