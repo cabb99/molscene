@@ -4,8 +4,6 @@ import tempfile
 import logging
 from typing import Union
 
-# Set up logging with multiple levels
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def count_atoms_with_vmd(pdb_path: str, selection: str) -> int:
@@ -30,7 +28,7 @@ def count_atoms_with_vmd(pdb_path: str, selection: str) -> int:
     RuntimeError
         If VMD fails or no numeric output can be parsed.
     """
-    logger.info(f"Counting atoms in '{pdb_path}' with selection '{selection}'")
+    logger.info(f"Calling VMD to count atoms in '{pdb_path}' with selection '{selection}'")
     logger.debug(f"Preparing Tcl script for VMD selection.")
 
     # Create a tiny Tcl script on disk
@@ -54,6 +52,7 @@ exit
         "-e", script_path,
         abs_pdb
     ]
+    # Only log the command at INFO level, rest at DEBUG
     logger.info(f"Calling VMD with command: {' '.join(cmd)}")
 
     proc = subprocess.run(
@@ -87,5 +86,6 @@ exit
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.WARNING)
     n = count_atoms_with_vmd("molscene/data/1r70.pdb", "protein")
     print(f"Number of atoms: {n}")
