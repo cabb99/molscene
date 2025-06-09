@@ -43,8 +43,8 @@ start: expr -> start
 // --------------------------
 
 ?selection: bool_keyword
-          | comparison_sel
           | range_or_property_sel
+          | comparison_sel
           | regex_sel
           | within_sel
           | bonded_sel
@@ -55,13 +55,13 @@ start: expr -> start
 //Range selection
 ?math_or_number_expr: math_expr | number_expr | STRING_VALUE
 
-comparison_sel: math_or_number_expr (comparison_op math_or_number_expr)+  -> comparison_selection
+comparison_sel.10: math_or_number_expr (comparison_op math_or_number_expr)+  -> comparison_selection
 
 // Left-factored list-or-range
 // ?range_or_property_sel.10: math_expr range_branch                -> range_selection
 //                          | math_expr selection_value+            -> property_selection
 
-?range_or_property_sel.10: "(" math_expr ")" range_item+                 -> property_selection 
+?range_or_property_sel.20: "(" math_expr ")" range_item+                 -> property_selection 
                          | selection_keyword range_item+                 -> property_selection
 
 ?range_item.10: number_range_selection

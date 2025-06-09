@@ -445,3 +445,11 @@ if __name__ == "__main__":
     base_parser, transformer = test_transformer(return_parser=True)
     test_transformer()
     print("Transformer tests passed.")
+
+#TODO:
+## Implement tests
+## Implement bonded selection
+## Implement sequence selection
+## Implement regex selection
+## Implement macro selection
+## Implement lazy evaluation
