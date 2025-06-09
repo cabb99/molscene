@@ -1,7 +1,7 @@
 import numpy as np
 import math
 import pandas as pd
-from lark import Lark, Transformer, v_args
+from lark import Lark, Transformer, v_args, Token, Tree
 import logging
 import json
 import os
@@ -105,24 +105,62 @@ class PandasTransformer(Transformer):
         logging.debug(f"var_sel() called with token: {repr(token)}")
         return self.df[token.value[1:]]
 
-    def selection_keyword(self, column) -> pd.Series:
+    def  selection_keyword(self, column) -> pd.Series:
         logging.debug(f"selection_keyword() called with obj: {repr(column)}")
         value = column.value
         if value == 'index':
-            return self.df.index
+            return pd.Series(self.df.index, name='index', index=self.df.index)
         
         if value not in self.df.columns:
             raise ValueError(f"Column '{value}' not found in DataFrame.")
         return self.df[value]
 
-    def property_selection(self, series: pd.Series, *values) -> pd.Series:
-        logging.debug(f"property_selection() called with var: {repr(series)}, values: {repr(values)}")
-        return series.isin(values)
-    
-    def range_branch(self, start, end, step=None):
-        logging.debug(f"range_branch() called with start: {repr(start)}, end: {repr(end)}, step: {repr(step)}")
-        return (start,end,step)
+    def property_selection(self, series: pd.Series, *tokens) -> pd.Series:
+        """
+        series: the DataFrame column (or index) you’re selecting on
+        tokens: a mix of
+            literal values (int, float, str)
+            Tree('number_range_selection',    [start, end])
+            Tree('stride_range_selection',    [start, end, step])
+            Tree('string_range_selection',    [start_str, end_str])
+        """
 
+        logging.debug(f"property_selection() called with series: {repr(series)}, rules: {repr(tokens)}")
+        
+        if isinstance(series, Token):
+            series = self.selection_keyword(series)
+
+        mask = pd.Series(False, index=series.index)
+        for tok in tokens:
+            if isinstance(tok, Tree):
+                data = tok.data
+                vals = tok.children
+
+                if data == 'number_range_selection':
+                    start, end = vals
+                    mask |= (series >= start) & (series <= end)
+
+                elif data == 'stride_range_selection':
+                    start, end, step = vals
+                    # include only those exactly on the stride
+                    rng = (series >= start) & (series <= end)
+                    mask |= rng & ((series - start) % step == 0)
+
+                elif data == 'string_range_selection':
+                    start, end = vals
+                    # string comparison is lexicographic
+                    mask |= (series >= start) & (series <= end)
+
+                else:
+                    raise ValueError(f"Unsupported range token: {data}")
+
+            else:
+                # literal value: Token or raw Python type
+                val = tok.value if isinstance(tok, Token) else tok
+                mask |= (series == val)
+
+        return mask
+    
     def range_selection(self, series, range_selection):
         logging.debug(f"range_selection() called with series: {repr(series)}, branch: {repr(range_selection)}")
         start, end, step = range_selection
@@ -130,6 +168,10 @@ class PandasTransformer(Transformer):
         if step is not None:
             sel &= (series - start) % step == 0
         return sel
+    
+    def range_string(self, series, range_selection):
+        logging.debug(f"range_selection() called with series: {repr(series)}, branch: {repr(range_selection)}")
+        raise NotImplementedError("Range string selection not implemented yet.")
 
     def regex_selection(self, series, pattern):
         logging.debug(f"regex_selection() called with series: {repr(series)}, pattern: {repr(pattern)}")
@@ -142,7 +184,6 @@ class PandasTransformer(Transformer):
         ref_pts = self.df.loc[target, ['x', 'y', 'z']].values
         query_pts = self.df[['x', 'y', 'z']].values
         dist_matrix = np.sqrt(((query_pts[:, None, :] - ref_pts[None, :, :])**2).sum(axis=2))
-        print(dir(token))
         if token.type == 'WITHIN':
             logging.debug(f"Calculating within distance: {dist}")
             return dist_matrix.min(axis=1) <= dist
@@ -177,7 +218,7 @@ class PandasTransformer(Transformer):
         if seen is None:
             seen = set()
         logging.debug(f"Expanding macro: expr={expr!r}, seen={seen}")
-        tokens = expr.split()
+        tokens = expr.split() 
         expanded = []
         for token in tokens:
             macro_key = token[1:] if token.startswith('@') else token
@@ -219,6 +260,11 @@ class PandasTransformer(Transformer):
         logging.debug(f"escaped_string() called with token: {repr(token)}")
         value = token.value.strip('"').replace('\\"', '"')
         return value
+    
+    def single_quote_string(self, token):
+        logging.debug(f"single_quote_string() called with token: {repr(token)}")
+        value = token.value.strip("'").replace("\\'", "'")
+        return value
 
     def number(self, token):
         logging.debug(f"number() called with token: {repr(token)}")
@@ -233,7 +279,7 @@ class PandasTransformer(Transformer):
     
 
 # Small test to ensure the transformer works
-def test_transformer():
+def test_transformer(return_parser=False):
     from lark import exceptions
     logging.basicConfig(level=logging.DEBUG)
     data = {
@@ -371,10 +417,15 @@ def test_transformer():
     df = pd.DataFrame(data)
     transformer = PandasTransformer(df, parser=base_parser)
 
-    
+    if return_parser:
+        # If we want to return the parser and transformer, return them now
+        logging.info("Returning base_parser and transformer.")
+        return base_parser, transformer
+
     for example in EXAMPLES:
         description, sel = example
         print(f"Testing: {description}")
+        print(f"Selection: {sel}")
         try:
             tree  = base_parser.parse(sel, start='start')
             print("Parse tree:")
@@ -388,6 +439,17 @@ def test_transformer():
         print("Selection result:")
         print(result)
 
+    return base_parser, transformer
+
 if __name__ == "__main__":
+    base_parser, transformer = test_transformer(return_parser=True)
     test_transformer()
     print("Transformer tests passed.")
+
+#TODO:
+## Implement tests
+## Implement bonded selection
+## Implement sequence selection
+## Implement regex selection
+## Implement macro selection
+## Implement lazy evaluation
