@@ -5,6 +5,7 @@ import logging
 from typing import Union
 import numpy as np
 import json
+import concurrent.futures
 
 logger = logging.getLogger(__name__)
 
@@ -133,8 +134,63 @@ def count_atoms_with_vmd(pdb_paths: list[str], selections: list[str], tcl_script
     return result
 
 
+class TimeoutException(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutException()
+
+def _prody_select_worker(args):
+    pdb_basename, sel, pdb_path = args
+    import prody
+    import numpy as np
+    try:
+        structure = prody.parsePDB(pdb_path)
+        atoms = structure.select(sel)
+        count = len(atoms) if atoms is not None else 0
+        return (pdb_basename, sel, count)
+    except Exception:
+        return (pdb_basename, sel, np.nan)
+
+def count_atoms_with_prody(pdb_paths: list[str], selections: list[str], max_workers: int = 4) -> dict[tuple[str, str], int]:
+    """
+    Count atoms for multiple PDB files and multiple selections using ProDy, with multiprocessing.
+
+    Parameters
+    ----------
+    pdb_paths : list of str
+        List of paths to PDB files.
+    selections : list of str
+        List of ProDy atom-selection strings.
+    max_workers : int
+        Number of worker processes to use (default: 4).
+
+    Returns
+    -------
+    dict
+        Mapping from (pdb_path, selection) to atom count (np.nan if selection fails).
+    """
+    logger = logging.getLogger(__name__)
+    logger.info(f"Processing {len(pdb_paths)} PDBs x {len(selections)} selections with up to {max_workers} workers.")
+    tasks = []
+    for pdb in pdb_paths:
+        pdb_basename = os.path.basename(pdb)
+        for sel in selections:
+            tasks.append((pdb_basename, sel, pdb))
+    result = {}
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        for i, (pdb_basename, sel, count) in enumerate(executor.map(_prody_select_worker, tasks)):
+            result[(pdb_basename, sel)] = count
+            if i % 1000 == 0 and i > 0:
+                logger.info(f"Processed {i} selections...")
+    return result
+
+
 if __name__ == "__main__":
     import glob
+    import pandas as pd
+
+    logging.basicConfig(level=logging.INFO)  # or logging.DEBUG for more verbosity
     
     # Read and clean the JSONC file (remove C++ style comments)
     jsonc_path = os.path.join(os.path.dirname(__file__), "selection_tests.jsonc")
@@ -150,8 +206,21 @@ if __name__ == "__main__":
     selection_tests = json.loads(clean_json)
     selections = [test["query"] for test in selection_tests]
     print(f"Loaded {len(selections)} selection queries from {jsonc_path}")
-    n = count_atoms_with_vmd(glob.glob('molscene/data/*.pdb')+glob.glob('molscene/data/*.cif'), selections, tcl_script_path='temp_vmd_script.tcl')
+    pdb_files = glob.glob('molscene/data/*.pdb') + glob.glob('molscene/data/*.cif')
+    
+    n_vmd = count_atoms_with_vmd(pdb_files, selections, tcl_script_path='temp_vmd_script.tcl')
+    n_prody = count_atoms_with_prody(pdb_files, selections)
+
+    # Merge results into a pandas DataFrame
+    df_vmd = pd.DataFrame([
+        {"pdb": pdb, "selection": sel, "count_vmd": count}
+        for (pdb, sel), count in n_vmd.items()
+    ])
+    df_prody = pd.DataFrame([
+        {"pdb": pdb, "selection": sel, "count_prody": count}
+        for (pdb, sel), count in n_prody.items()
+    ])
+    df = pd.merge(df_vmd, df_prody, on=["pdb", "selection"], how="outer")
+
     print(f"Number of atoms (per selection):")
-    for (pdb, sel), count in n.items():
-        if count is np.nan:
-            print(f"  {pdb:12} | {sel:80} | {count}")
+    print(df.to_string(index=False, max_colwidth=80))
