@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import logging
 from typing import Union
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -72,16 +73,28 @@ def count_atoms_with_vmd(pdb_paths: list[str], selections: list[str]) -> dict[tu
 
     # Parse output lines like: COUNT filename | selection | N
     result = {}
+    found_keys = set()
     for line in proc.stdout.splitlines():
         s = line.strip()
         if s.startswith("COUNT "):
             try:
                 _, rest = s.split("COUNT ", 1)
                 pdbfile, sel, n = [x.strip() for x in rest.split("|")]
-                result[(pdbfile, sel)] = int(n)
-                logger.info(f"Found atom count: {pdbfile} | {sel} = {n}")
+                found_keys.add((pdbfile, sel))
+                if n.isdigit():
+                    result[(pdbfile, sel)] = int(n)
+                    logger.info(f"Found atom count: {pdbfile} | {sel} = {n}")
+                else:
+                    result[(pdbfile, sel)] = np.nan
+                    logger.info(f"Invalid selection or count for: {pdbfile} | {sel}, returning np.nan")
             except Exception as e:
                 logger.warning(f"Failed to parse line: {s} ({e})")
+    # Fill missing (pdb, sel) pairs with np.nan
+    for pdb in pdb_paths:
+        for sel in selections:
+            key = (os.path.basename(pdb), sel)
+            if key not in result:
+                result[key] = np.nan
     if not result:
         logger.error("Could not parse VMD output for atom counts.")
         raise RuntimeError(
@@ -92,6 +105,6 @@ def count_atoms_with_vmd(pdb_paths: list[str], selections: list[str]) -> dict[tu
     return result
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.WARNING)
-    n = count_atoms_with_vmd(["molscene/data/1r70.pdb", "molscene/data/1zbl.cif"], ["protein","nucleic","water"])
+    logging.basicConfig(level=logging.DEBUG)
+    n = count_atoms_with_vmd(["molscene/data/1r70.pdb", "molscene/data/1zbl.cif",'wrong_pdb'], ["protein","nucleic","water","invalid"])
     print(f"Number of atoms: {n}")
