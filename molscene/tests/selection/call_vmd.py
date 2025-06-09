@@ -4,6 +4,7 @@ import tempfile
 import logging
 from typing import Union
 import numpy as np
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +37,14 @@ def count_atoms_with_vmd(pdb_paths: list[str], selections: list[str]) -> dict[tu
     for pdb in pdb_paths:
         tcl_lines.append(f"mol new \"{os.path.abspath(pdb)}\"")
         for sel in selections:
-            tcl_lines.append(f"set sel [atomselect top \"{sel}\"]")
-            tcl_lines.append(f"puts \"COUNT {os.path.basename(pdb)} | {sel} | [$sel num]\"")
-            tcl_lines.append("$sel delete")
+            # Use try to catch errors in atomselect and puts
+            tcl_lines.append(f"try {{")
+            tcl_lines.append(f"    set sel [atomselect top \"{sel}\"]")
+            tcl_lines.append(f"    puts \"COUNT {os.path.basename(pdb)} | {sel} | [$sel num]\"")
+            tcl_lines.append(f"    $sel delete")
+            tcl_lines.append(f"}} on error {{err opts}} {{")
+            tcl_lines.append(f"    puts \"COUNT {os.path.basename(pdb)} | {sel} | nan\"")
+            tcl_lines.append(f"}}")
         tcl_lines.append("mol delete top")
     tcl_lines.append("exit")
     tcl = "\n".join(tcl_lines)
@@ -105,6 +111,23 @@ def count_atoms_with_vmd(pdb_paths: list[str], selections: list[str]) -> dict[tu
     return result
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
-    n = count_atoms_with_vmd(["molscene/data/1r70.pdb", "molscene/data/1zbl.cif",'wrong_pdb'], ["protein","nucleic","water","invalid"])
-    print(f"Number of atoms: {n}")
+    import glob
+    
+    # Read and clean the JSONC file (remove C++ style comments)
+    jsonc_path = os.path.join(os.path.dirname(__file__), "selection_tests.jsonc")
+    with open(jsonc_path, "r") as f:
+        lines = f.readlines()
+    # Only skip lines that start with // (do not strip inline comments)
+    clean_lines = []
+    for line in lines:
+        if line.lstrip().startswith("//"):  # skip full-line comments
+            continue
+        clean_lines.append(line)
+    clean_json = "".join(clean_lines)
+    selection_tests = json.loads(clean_json)
+    selections = [test["query"] for test in selection_tests]
+    print(f"Loaded {len(selections)} selection queries from {jsonc_path}")
+    n = count_atoms_with_vmd(glob.glob('molscene/data/*.pdb')+glob.glob('molscene/data/*.cif'), selections)
+    print(f"Number of atoms (per selection):")
+    for (pdb, sel), count in n.items():
+        print(f"  {pdb:12} | {sel:80} | {count}")
