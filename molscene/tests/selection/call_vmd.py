@@ -5,7 +5,6 @@ import logging
 from typing import Union
 import numpy as np
 import json
-import concurrent.futures
 
 logger = logging.getLogger(__name__)
 
@@ -142,19 +141,19 @@ def timeout_handler(signum, frame):
 
 def _prody_select_worker(args):
     pdb_basename, sel, pdb_path = args
-    import prody
+    from prody import parsePDB
     import numpy as np
     try:
-        structure = prody.parsePDB(pdb_path)
+        structure = parsePDB(pdb_path)
         atoms = structure.select(sel)
         count = len(atoms) if atoms is not None else 0
         return (pdb_basename, sel, count)
     except Exception:
         return (pdb_basename, sel, np.nan)
 
-def count_atoms_with_prody(pdb_paths: list[str], selections: list[str], max_workers: int = 4) -> dict[tuple[str, str], int]:
+def count_atoms_with_prody(pdb_paths: list[str], selections: list[str]) -> dict[tuple[str, str], int]:
     """
-    Count atoms for multiple PDB files and multiple selections using ProDy, with multiprocessing.
+    Count atoms for multiple PDB files and multiple selections using ProDy.
 
     Parameters
     ----------
@@ -162,27 +161,98 @@ def count_atoms_with_prody(pdb_paths: list[str], selections: list[str], max_work
         List of paths to PDB files.
     selections : list of str
         List of ProDy atom-selection strings.
-    max_workers : int
-        Number of worker processes to use (default: 4).
 
     Returns
     -------
     dict
         Mapping from (pdb_path, selection) to atom count (np.nan if selection fails).
     """
+    from prody import parsePDB
     logger = logging.getLogger(__name__)
-    logger.info(f"Processing {len(pdb_paths)} PDBs x {len(selections)} selections with up to {max_workers} workers.")
-    tasks = []
+    result = {}
     for pdb in pdb_paths:
         pdb_basename = os.path.basename(pdb)
-        for sel in selections:
-            tasks.append((pdb_basename, sel, pdb))
+        logger.info(f"Processing PDB: {pdb_basename} with {len(selections)} selections")
+        try:
+            structure = parsePDB(pdb)
+        except Exception as e:
+            logger.warning(f"Failed to parse PDB: {pdb}: {e}")
+            for sel in selections:
+                result[(pdb_basename, sel)] = np.nan
+            continue
+        for i, sel in enumerate(selections):
+            try:
+                atoms = structure.select(sel)
+                count = len(atoms) if atoms is not None else 0
+                result[(pdb_basename, sel)] = count
+            except Exception as e:
+                if i < 5:
+                    logger.info(f"[ProDy] Selection failed for '{sel}': {e}")
+                result[(pdb_basename, sel)] = np.nan
+            if i % 100 == 0 and i > 0:
+                logger.info(f"[ProDy] Processed {i} selections for {pdb_basename}")
+    return result
+
+def count_atoms_with_molscene(pdb_paths: list[str], selections: list[str]) -> dict[tuple[str, str], int]:
+    """
+    Count atoms for multiple PDB files and multiple selections using the molscene transformer parser.
+
+    Parameters
+    ----------
+    pdb_paths : list of str
+        List of paths to PDB files.
+    selections : list of str
+        List of selection queries.
+
+    Returns
+    -------
+    dict
+        Mapping from (pdb_path, selection) to atom count (np.nan if selection fails).
+    """
+    import pandas as pd
+    import numpy as np
+    import os
+    import logging
+    from molscene.selection import transformer as molscene_transformer
+
+    logger = logging.getLogger(__name__)
     result = {}
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-        for i, (pdb_basename, sel, count) in enumerate(executor.map(_prody_select_worker, tasks)):
-            result[(pdb_basename, sel)] = count
-            if i % 1000 == 0 and i > 0:
-                logger.info(f"Processed {i} selections...")
+    for pdb in pdb_paths:
+        pdb_basename = os.path.basename(pdb)
+        logger.info(f"Processing PDB with molscene: {pdb_basename} with {len(selections)} selections")
+        try:
+            # Use Scene.from_pdb or Scene.from_cif to load structure as DataFrame
+            if pdb.endswith('.pdb'):
+                from molscene.Scene import Scene
+                df = Scene.from_pdb(pdb)
+            elif pdb.endswith('.cif'):
+                from molscene.Scene import Scene
+                df = Scene.from_cif(pdb)
+            else:
+                logger.warning(f"Unsupported file format for {pdb}")
+                for sel in selections:
+                    result[(pdb_basename, sel)] = np.nan
+                continue
+            # Build parser and transformer
+            grammar_path = os.path.join(os.path.dirname(molscene_transformer.__file__), "selection_syntax.lark")
+            with open(grammar_path) as f:
+                grammar_text = f.read()
+            from lark import Lark
+            parser = Lark(grammar_text, parser='lalr', propagate_positions=True, start=['start', 'expr'])
+            transformer = molscene_transformer.PandasTransformer(df, parser=parser)
+            for sel in selections:
+                try:
+                    tree = parser.parse(sel, start='start')
+                    selected = transformer.transform(tree)
+                    count = len(selected)
+                    result[(pdb_basename, sel)] = count
+                except Exception as e:
+                    logger.info(f"[molscene] Selection failed for '{sel}': {e}")
+                    result[(pdb_basename, sel)] = np.nan
+        except Exception as e:
+            logger.warning(f"molscene transformer failed for {pdb}: {e}")
+            for sel in selections:
+                result[(pdb_basename, sel)] = np.nan
     return result
 
 
@@ -208,10 +278,15 @@ if __name__ == "__main__":
     print(f"Loaded {len(selections)} selection queries from {jsonc_path}")
     pdb_files = glob.glob('molscene/data/*.pdb') + glob.glob('molscene/data/*.cif')
     
+    n_molscene = count_atoms_with_molscene(pdb_files, selections)
     n_vmd = count_atoms_with_vmd(pdb_files, selections, tcl_script_path='temp_vmd_script.tcl')
     n_prody = count_atoms_with_prody(pdb_files, selections)
 
     # Merge results into a pandas DataFrame
+    df_molscene = pd.DataFrame([
+        {"pdb": pdb, "selection": sel, "count_molscene": count}
+        for (pdb, sel), count in n_molscene.items()
+    ])
     df_vmd = pd.DataFrame([
         {"pdb": pdb, "selection": sel, "count_vmd": count}
         for (pdb, sel), count in n_vmd.items()
@@ -220,7 +295,12 @@ if __name__ == "__main__":
         {"pdb": pdb, "selection": sel, "count_prody": count}
         for (pdb, sel), count in n_prody.items()
     ])
+
+    df = df_vmd
     df = pd.merge(df_vmd, df_prody, on=["pdb", "selection"], how="outer")
+    df = pd.merge(df, df_molscene, on=["pdb", "selection"], how="outer")
 
     print(f"Number of atoms (per selection):")
     print(df.to_string(index=False, max_colwidth=80))
+
+    df.to_csv("atom_countsv2.csv", index=False)
