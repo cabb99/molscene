@@ -163,7 +163,7 @@ same_sel: _SAME selection_keyword _AS expr -> same_selection
             | num_factor _POW math_primary  -> pow
             | math_primary
 
-?math_primary: selection_keyword                   -> selection_keyword
+?math_primary: selection_keyword                   
              | "-" math_primary                     -> neg
              | function_name "(" math_expr ")"     -> func
              | "(" math_expr ")"                   
@@ -415,12 +415,12 @@ VARIABLE  : "$"CNAME
 
 select_variable: VARIABLE -> var_sel
 
-?selection_keyword: select_property
-                  | select_position
-                  | select_indexing
-                  | select_fragment
-                  | select_residue
-                  | select_variable
+selection_keyword: select_property
+                 | select_position
+                 | select_indexing
+                 | select_fragment
+                 | select_residue
+                 | select_variable
 
 // ----------------------------
 // MATH KEYWORDS
