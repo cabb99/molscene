@@ -182,6 +182,10 @@ class Within(Node):
         mask = self.target_mask.evaluate(df)
         ref_pts = df.loc[mask, ['x','y','z']].values
         pts = df[['x','y','z']].values
+        if ref_pts.size == 0:
+            # “within” of an empty set → nobody matches
+            result = np.zeros(len(df), dtype=bool)
+            return pd.Series(result, index=df.index)
         d2 = ((pts[:,None,:] - ref_pts[None,:,:])**2).sum(axis=2)
         if self.mode == "within":
             result = (d2.min(axis=1)**0.5) <= distance
@@ -619,6 +623,11 @@ class ASTBuilder(Transformer):
         return self._to_node(expr)
 
     def number_range_selection(self, start, end, step=None):
+        if step is not None:
+            return Range(start, end, step)
+        return Range(start, end)
+    
+    def stride_range_selection(self, start, end, step=None):
         if step is not None:
             return Range(start, end, step)
         return Range(start, end)
