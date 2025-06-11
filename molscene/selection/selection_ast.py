@@ -121,29 +121,41 @@ class Comparison(Node):
     def evaluate(self, df: DataFrameLike) -> pd.Series:
         left = self.field.evaluate(df)
         right = self.value.evaluate(df) if isinstance(self.value, Node) else self.value
-        # If left is not a Series but right is, swap and reverse operator
+
+        op = self.op
         if not isinstance(left, pd.Series) and isinstance(right, pd.Series):
             left, right = right, left
-            op_map = {'<': '>', '>': '<', '<=': '>=', '>=': '<=', '==': '==', 'eq': 'eq', '!=': '!=', 'ne': 'ne'}
-            op = op_map.get(self.op, self.op)
-        else:
-            op = self.op
+            flip = {'<': '>', '>': '<', '<=': '>=', '>=': '<=', '==': '==', '!=': '!=',
+                    'eq': 'eq', 'ne': 'ne', 'lt': 'gt', 'gt': 'lt', 'le': 'ge', 'ge': 'le'}
+            op = flip.get(op, op)
+
         if right is None:
             return left.astype(bool)
-        return {
-            '==': left == right,
-            '!=': left != right,
-            '<':  left <  right,
-            '>':  left >  right,
-            '<=': left <= right,
-            '>=': left >= right,
-            'eq': left == right,
-            'ne': left != right,
-            'lt': left <  right,
-            'gt': left >  right,
-            'le': left <= right,
-            'ge': left >= right
-        }[op]
+
+        ops = {
+            '==': lambda l, r: l == r,
+            '!=': lambda l, r: l != r,
+            '<':  lambda l, r: l < r,
+            '>':  lambda l, r: l > r,
+            '<=': lambda l, r: l <= r,
+            '>=': lambda l, r: l >= r,
+            'eq': lambda l, r: l == r,
+            'ne': lambda l, r: l != r,
+            'lt': lambda l, r: l < r,
+            'gt': lambda l, r: l > r,
+            'le': lambda l, r: l <= r,
+            'ge': lambda l, r: l >= r,
+        }
+        try:
+            return ops[op](left, right)
+        except TypeError:
+            # Return all False if comparison is invalid (e.g., str < int)
+            if isinstance(left, pd.Series):
+                return pd.Series(False, index=left.index)
+            elif isinstance(right, pd.Series):
+                return pd.Series(False, index=right.index)
+            else:
+                return False
     def symbolic(self) -> str:
         return f"{self.field.symbolic()} {self.op} {self.value.symbolic() if isinstance(self.value, Node) else self.value}"
 
@@ -482,7 +494,8 @@ class ASTBuilder(Transformer):
         # If left is a SelectionKeyword node, use its name as string
         if isinstance(left, SelectionKeyword):
             left = left.name
-        return Comparison(left, str(op_tok), right)
+        # Pass the raw operator text
+        return Comparison(left, op_tok.value, right)
 
     def add(self, left, right):
         return Add(self._to_node(left), self._to_node(right))
