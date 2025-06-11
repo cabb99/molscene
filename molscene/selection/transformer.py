@@ -105,14 +105,19 @@ class PandasTransformer(Transformer):
         logging.debug(f"var_sel() called with token: {repr(token)}")
         return self.df[token.value[1:]]
 
-    def  selection_keyword(self, column) -> pd.Series:
+    def selection_keyword(self, column) -> pd.Series:
         logging.debug(f"selection_keyword() called with obj: {repr(column)}")
         value = column.value
         if value == 'index':
             return pd.Series(self.df.index, name='index', index=self.df.index)
         
+        if value == 'structure' and 'structure' in self.df.columns:
+            #Calculate the secondary structure
+            raise NotImplementedError("Selection by 'structure' is not implemented yet.")
+        
         if value not in self.df.columns:
             raise ValueError(f"Column '{value}' not found in DataFrame.")
+       
         return self.df[value]
 
     def property_selection(self, series: pd.Series, *tokens) -> pd.Series:
