@@ -407,8 +407,9 @@ RESID      : "resid" | "resi"
 CHAINID    : "chainid"
 SEGMENT_ID : "segment_id" | "segname"
 CONFORMATION : "conformation"
+STRUCTURE  : "structure"
 
-?select_residue: RESIDUE | RESNAME | RESID | CHAINID | SEGMENT_ID | CONFORMATION
+?select_residue: RESIDUE | RESNAME | RESID | CHAINID | SEGMENT_ID | CONFORMATION | STRUCTURE
 
 VARIABLE  : "$"CNAME
 

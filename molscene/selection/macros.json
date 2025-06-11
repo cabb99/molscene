@@ -97,6 +97,13 @@
           ],
           "definition": "resname HOH DOD WAT TIP3 H2O OH2 TIP TIP2 TIP4"
       },
+      "aminoacid": {
+        "name": "amino",
+        "synonyms": ["vmd_protein"],
+        "short": "aminoacid residues",
+        "description": "A residue with atoms named C, N, CA, and O",
+        "definition": "(same residue as name C) and (same residue as name N) and (same residue as name CA) and (same residue as name O)"
+      },
       "lipid": {
         "name": "lipid",
         "synonyms": ["lipids"],
@@ -374,6 +381,108 @@
           "Same as: 'protein and not backbonefull'"
         ],
         "definition": "protein and not backbonefull"
+      }
+    },
+    "structure": {
+      "helix": {
+        "name": "helix",
+        "synonyms": ["alpha"],
+        "short": "all helix types (H, G, I)",
+        "description": [
+          "All helix types as defined by DSSP/STRIDE: alpha, 3-10, and pi helix.",
+          "Equivalent to: 'structure H G I'"
+        ],
+        "definition": "structure H G I"
+      },
+      "sheet": {
+        "name": "sheet",
+        "synonyms": ["beta"],
+        "short": "all beta sheet types (E, B)",
+        "description": [
+          "All beta sheet types as defined by DSSP/STRIDE: extended and bridge.",
+          "Equivalent to: 'structure E B'"
+        ],
+        "definition": "structure E B"
+      },
+      "coil": {
+        "name": "coil",
+        "synonyms": [],
+        "short": "coil/loop/other (C, S, T, blank)",
+        "description": [
+          "All non-helix, non-sheet secondary structure: coil, turn, bend, and unassigned.",
+          "Equivalent to: 'structure C S T' (DSSP) or 'structure C T' (STRIDE)"
+        ],
+        "definition": "structure C S T"
+      },
+      "alpha_helix": {
+        "name": "alpha_helix",
+        "synonyms": [],
+        "short": "alpha helix (H)",
+        "description": [
+          "Alpha helix as defined by DSSP/STRIDE.",
+          "Equivalent to: 'structure H'"
+        ],
+        "definition": "structure H"
+      },
+      "pi_helix": {
+        "name": "pi_helix",
+        "synonyms": [],
+        "short": "pi helix (I)",
+        "description": [
+          "Pi helix as defined by DSSP/STRIDE.",
+          "Equivalent to: 'structure I'"
+        ],
+        "definition": "structure I"
+      },
+      "helix_3_10": {
+        "name": "helix_3_10",
+        "synonyms": [],
+        "short": "3-10 helix (G)",
+        "description": [
+          "3-10 helix as defined by DSSP/STRIDE.",
+          "Equivalent to: 'structure G'"
+        ],
+        "definition": "structure G"
+      },
+      "extended_beta": {
+        "name": "extended_beta",
+        "synonyms": [],
+        "short": "extended beta strand (E)",
+        "description": [
+          "Extended beta strand as defined by DSSP/STRIDE.",
+          "Equivalent to: 'structure E'"
+        ],
+        "definition": "structure E"
+      },
+      "bridge_beta": {
+        "name": "bridge_beta",
+        "synonyms": [],
+        "short": "beta bridge (B)",
+        "description": [
+          "Beta bridge as defined by DSSP/STRIDE.",
+          "Equivalent to: 'structure B'"
+        ],
+        "definition": "structure B"
+      },
+      "turn": {
+        "name": "turn",
+        "synonyms": [],
+        "short": "turn (T)",
+        "description": [
+          "Turn as defined by DSSP/STRIDE (hydrogen-bonded turn).",
+          "Equivalent to: 'structure T'"
+        ],
+        "definition": "structure T"
+      },
+      "bend": {
+        "name": "bend",
+        "synonyms": [],
+        "short": "bend (S, DSSP only)",
+        "description": [
+          "Bend as defined by DSSP (geometry-based, not in STRIDE).",
+          "Equivalent to: 'structure S'"
+        ],
+        "definition": "structure S"
       }
     }
   }
