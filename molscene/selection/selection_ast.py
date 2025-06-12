@@ -44,10 +44,17 @@ class DataFrameLike(Protocol):
 
 class Node:
     """Base AST node; subclasses implement eager and symbolic evaluation."""
+    short_circuit = True
     def evaluate(self, df: DataFrameLike) -> Any:
         raise NotImplementedError
     def symbolic(self) -> str:
         raise NotImplementedError
+
+class LogicNode(Node):
+    """Base class for logical nodes that can short-circuit evaluation."""
+    @property
+    def evaluate_global(self) -> bool:
+        return getattr(self.left,  'evaluate_global', True) and getattr(self.right, 'evaluate_global', True)
 
 @dataclass
 class Start(Node):
@@ -61,7 +68,7 @@ class Start(Node):
         return self.expr.symbolic() if self.expr else "Start"
 # Logical Operators
 @dataclass
-class And(Node):
+class And(LogicNode):
     left: Node
     right: Node
     def evaluate(self, df: DataFrameLike) -> pd.Series:
@@ -69,8 +76,8 @@ class And(Node):
         # Short-circuit: if nothing matches left, return all False
         if not left_mask.any():
             return left_mask
-        # Only evaluate right on the subset where left_mask is True
-        right_mask = self.right.evaluate(df[left_mask])
+        # Only evaluate right on the subset where left_mask is True unless short-circuiting is disabled
+        right_mask = self.right.evaluate(df[left_mask] if self.right.short_circuit else df)
         # Reindex right_mask to match original df
         combined = pd.Series(False, index=df.index)
         combined.loc[right_mask.index] = left_mask.loc[right_mask.index] & right_mask
@@ -87,8 +94,8 @@ class Or(Node):
         # Short-circuit: if everything matches left, return all True
         if left_mask.all():
             return left_mask
-        # Only evaluate right on the subset where left_mask is False
-        right_mask = self.right.evaluate(df[~left_mask])
+        # Only evaluate right on the subset where left_mask is False unless short-circuiting is disabled
+        right_mask = self.right.evaluate(df[~left_mask] if self.right.short_circuit else df)
         # Start with left_mask, set True where right_mask is True
         combined = left_mask.copy()
         combined.loc[right_mask.index] = left_mask.loc[right_mask.index] | right_mask
@@ -108,8 +115,8 @@ class Xor(Node):
         # Short-circuit: if nothing matches left, return right
         if not left_mask.any():
             return self.right.evaluate(df)
-        # Evaluate right only on where left_mask is False
-        right_mask = self.right.evaluate(df[~left_mask])
+        # Evaluate right only on where left_mask is False unless short-circuiting is disabled
+        right_mask = self.right.evaluate(df[~left_mask] if self.right.short_circuit else df)
         combined = left_mask.copy()
         combined.loc[right_mask.index] = left_mask.loc[right_mask.index] ^ right_mask
         return combined
@@ -282,6 +289,7 @@ class Regex(Node):
 @dataclass
 class Within(Node):
     """Spatial selection within a distance of reference points."""
+    short_circuit = False # Needs access to all points, so no short-circuiting
     distance: Node  # always a Node now
     target_mask: Node  # always a Node now
     mode: str = "within"  # "within" or "exwithin"
@@ -322,6 +330,7 @@ class Macro(Node):
 
 @dataclass
 class Same(Node):
+    short_circuit = False # Needs access to all points, so no short-circuiting
     field: Node  # always a Node now
     mask: Node
     def evaluate(self, df):
@@ -345,6 +354,7 @@ class SelectionKeyword(Node):
 
 @dataclass
 class Bonded(Node):
+    short_circuit = False # Needs access to all points, so no short-circuiting
     distance: float
     selection: Node
     def evaluate(self, df):
