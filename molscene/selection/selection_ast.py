@@ -50,6 +50,17 @@ class Node:
         raise NotImplementedError
 
 @dataclass
+class Start(Node):
+    """Root node of the AST, contains the main expression."""
+    expr: Node
+    def evaluate(self, df: DataFrameLike) -> pd.Series:
+        """Evaluate the main expression and return a boolean mask."""
+        return df[self.expr.evaluate(df)]
+    def symbolic(self) -> str:
+        """Return the symbolic representation of the main expression."""
+        return self.expr.symbolic() if self.expr else "Start"
+# Logical Operators
+@dataclass
 class And(Node):
     left: Node
     right: Node
@@ -112,7 +123,22 @@ class Not(Node):
         return ~self.expr.evaluate(df)
     def symbolic(self) -> str:
         return f"~({self.expr.symbolic()})"
+    
+@dataclass
+class All(Node):
+    def evaluate(self, df):
+        return pd.Series(True, index=df.index)
+    def symbolic(self):
+        return "All"
 
+@dataclass
+class None_(Node):
+    def evaluate(self, df):
+        return pd.Series(False, index=df.index)
+    def symbolic(self):
+        return "None"
+
+# Selections
 @dataclass
 class Comparison(Node):
     field: Node  # always a Node now
@@ -159,19 +185,88 @@ class Comparison(Node):
     def symbolic(self) -> str:
         return f"{self.field.symbolic()} {self.op} {self.value.symbolic() if isinstance(self.value, Node) else self.value}"
 
-@dataclass
-class Range(Node):
-    start: Union[int, float, Node]
-    end: Union[int, float, Node]
-    step: Union[int, float, Node, None] = None
-    def evaluate(self, df: DataFrameLike):
-        raise NotImplementedError("Range should be evaluated in PropertySelection, not directly.")
+## Data Values
+class DataValue(Node):
+    """Base class for data values that do not evaluate to a Series."""
+    def evaluate(self, df: DataFrameLike) -> Any:
+        raise NotImplementedError(f"{self.__class__.__name__} should not be evaluated directly.")
     def symbolic(self) -> str:
-        expr = f"Range({self.start!r}, {self.end!r}"
-        if self.step is not None:
-            expr += f", {self.step!r}"
-        expr += ")"
-        return expr
+        """ Write the name of the class and their values as a string representation. """
+        return f"{self.__class__.__name__}({' '.join(f'{k}={v!r}' for k, v in self.__dict__.items() if v is not None)})"
+
+@dataclass
+class RangeValue(DataValue):
+    start: Union[Node]
+    end: Union[Node]
+    step: Union[Node, None] = None
+    def evaluate(self, df: DataFrameLike):
+        start = self.start.evaluate(df) if isinstance(self.start, Node) else self.start
+        end = self.end.evaluate(df) if isinstance(self.end, Node) else self.end
+        step = self.step.evaluate(df) if isinstance(self.step, Node) else self.step
+        return start, end, step
+
+   
+@dataclass
+class StringValue(DataValue):
+    """Represents a string value in the AST."""
+    value: str
+    def evaluate(self, df: DataFrameLike) -> str:
+        return self.value
+    
+    def symbolic(self) -> str:
+        return repr(self.value)
+    
+@dataclass
+class QuotedStringValue(DataValue):
+    """Represents a quoted string value in the AST."""
+    value: str
+    def evaluate(self, df: DataFrameLike) -> str:
+        return self.value[1:-1]  # Remove quotes
+    
+    def symbolic(self) -> str:
+        return repr(self.value)
+
+@dataclass
+class RegexValue(DataValue):
+    """Represents a regex value in the AST."""
+    value: str
+    def evaluate(self, df: DataFrameLike) -> str:
+        return self.value    
+    
+    def symbolic(self) -> str:
+        return f"RegexValue(value={self.value!r})"
+
+@dataclass
+class PropertySelection(Node):
+    field: Node  # always a Node now
+    values: list
+    def evaluate(self, df):
+        col = self.field.evaluate(df)
+        mask = pd.Series(False, index=col.index)
+        for v in self.values:
+            if isinstance(v, StringValue):
+                value = v.evaluate(df)
+                mask |= (col == value)
+            elif isinstance(v, QuotedStringValue):
+                value = v.evaluate(df)
+                mask |= (col == value)
+            elif isinstance(v, RegexValue):
+                # Pass the string pattern, not the node
+                mask |= Regex(self.field, v).evaluate(df)
+            elif isinstance(v, RangeValue):
+                start = v.start.evaluate(df) if isinstance(v.start, Node) else v.start
+                end = v.end.evaluate(df) if isinstance(v.end, Node) else v.end
+                step = v.step.evaluate(df) if (v.step is not None and isinstance(v.step, Node)) else v.step
+                range_mask = (col >= start) & (col <= end)
+                if step is not None:
+                    range_mask &= ((col - start) % step == 0)
+                mask |= range_mask
+            else:
+                mask |= (col == v.evaluate(df) if isinstance(v, Node) else col == v)
+        return mask
+    def symbolic(self):
+        return f"PropertySelection({self.field.symbolic()}, {self.values})"
+
 
 @dataclass
 class Regex(Node):
@@ -179,9 +274,10 @@ class Regex(Node):
     pattern: str
     def evaluate(self, df: DataFrameLike) -> pd.Series:
         col = self.field.evaluate(df)
-        return col.astype(str).str.contains(self.pattern, regex=True)
+        pattern = self.pattern.evaluate(df)
+        return col.astype(str).str.contains(pattern, regex=True)
     def symbolic(self) -> str:
-        return f"{self.field.symbolic()}.astype(str).str.contains({self.pattern!r})"
+        return f"Regex({self.field.symbolic()}, {self.pattern!r})"
 
 @dataclass
 class Within(Node):
@@ -225,42 +321,6 @@ class Macro(Node):
         return self.definition.symbolic()
 
 @dataclass
-class All(Node):
-    def evaluate(self, df):
-        return pd.Series(True, index=df.index)
-    def symbolic(self):
-        return "all"
-
-@dataclass
-class NoneNode(Node):
-    def evaluate(self, df):
-        return pd.Series(False, index=df.index)
-    def symbolic(self):
-        return "none"
-
-@dataclass
-class PropertySelection(Node):
-    field: Node  # always a Node now
-    values: list
-    def evaluate(self, df):
-        col = self.field.evaluate(df)
-        mask = pd.Series(False, index=col.index)
-        for v in self.values:
-            if isinstance(v, Range):
-                start = v.start.evaluate(df) if isinstance(v.start, Node) else v.start
-                end = v.end.evaluate(df) if isinstance(v.end, Node) else v.end
-                step = v.step.evaluate(df) if (v.step is not None and isinstance(v.step, Node)) else v.step
-                range_mask = (col >= start) & (col <= end)
-                if step is not None:
-                    range_mask &= ((col - start) % step == 0)
-                mask |= range_mask
-            else:
-                mask |= (col == v.evaluate(df) if isinstance(v, Node) else col == v)
-        return mask
-    def symbolic(self):
-        return f"PropertySelection({self.field.symbolic()}, {self.values})"
-
-@dataclass
 class Same(Node):
     field: Node  # always a Node now
     mask: Node
@@ -270,7 +330,45 @@ class Same(Node):
         return col.isin(vals)
     def symbolic(self):
         return f"Same({self.field.symbolic()}, {self.mask.symbolic()})"
+    
+@dataclass
+class SelectionKeyword(Node):
+    name: str
+    def evaluate(self, df):
+        if self.name == 'index':
+            return pd.Series(df.index, name='index', index=df.index)
+        if self.name not in df.columns:
+            raise ValueError(f"Column '{self.name}' not found in DataFrame.")
+        return df[self.name]
+    def symbolic(self):
+        return self.name
 
+@dataclass
+class Bonded(Node):
+    distance: float
+    selection: Node
+    def evaluate(self, df):
+        raise NotImplementedError("Bonded selection not implemented.")
+    def symbolic(self):
+        return f"Bonded({self.distance!r}, {self.selection!r})"
+
+@dataclass
+class SequenceSelectionRegex(Node):
+    pattern: str
+    def evaluate(self, df):
+        raise NotImplementedError("Sequence selection regex not implemented.")
+    def symbolic(self):
+        return f"SequenceSelectionRegex({self.pattern!r})"
+
+@dataclass
+class SequenceSelection(Node):
+    sequence: str
+    def evaluate(self, df):
+        raise NotImplementedError("Sequence selection not implemented.")
+    def symbolic(self):
+        return f"SequenceSelection({self.sequence!r})"
+
+# Mathematical Operations
 @dataclass
 class Add(Node):
     left: Node
@@ -380,43 +478,6 @@ class Const(Node):
     def symbolic(self):
         return self.name
 
-@dataclass
-class SelectionKeyword(Node):
-    name: str
-    def evaluate(self, df):
-        if self.name == 'index':
-            return pd.Series(df.index, name='index', index=df.index)
-        if self.name not in df.columns:
-            raise ValueError(f"Column '{self.name}' not found in DataFrame.")
-        return df[self.name]
-    def symbolic(self):
-        return self.name
-
-@dataclass
-class Bonded(Node):
-    distance: float
-    selection: Node
-    def evaluate(self, df):
-        raise NotImplementedError("Bonded selection not implemented.")
-    def symbolic(self):
-        return f"Bonded({self.distance!r}, {self.selection!r})"
-
-@dataclass
-class SequenceSelectionRegex(Node):
-    pattern: str
-    def evaluate(self, df):
-        raise NotImplementedError("Sequence selection regex not implemented.")
-    def symbolic(self):
-        return f"SequenceSelectionRegex({self.pattern!r})"
-
-@dataclass
-class SequenceSelection(Node):
-    sequence: str
-    def evaluate(self, df):
-        raise NotImplementedError("Sequence selection not implemented.")
-    def symbolic(self):
-        return f"SequenceSelection({self.sequence!r})"
-
 # --- Macros Loader ---
 class MacrosLoader:
     """Loads and expands macros from a JSON file."""
@@ -485,6 +546,9 @@ class ASTBuilder(Transformer):
     def or_(self, left, right):
         return Or(self._to_node(left), self._to_node(right))
 
+    def xor_(self, left, right):
+        return Xor(self._to_node(left), self._to_node(right))
+
     def not_(self, expr):
         return Not(self._to_node(expr))
 
@@ -496,6 +560,51 @@ class ASTBuilder(Transformer):
             left = left.name
         # Pass the raw operator text
         return Comparison(left, op_tok.value, right)
+
+    def comparison_selection(self, *items):
+        operands = [self._to_node(x) for x in items[0::2]]
+        operators = items[1::2]
+        mask = None
+        for left, op, right in zip(operands, operators, operands[1:]):
+            cmp = Comparison(left, str(op), right)
+            mask = cmp if mask is None else And(mask, cmp)
+        return mask
+
+    def property_selection(self, name, *values):
+        vals = []
+        name = self._to_node(name)
+        for v in values:
+            node = self._to_node(v)
+            vals.append(node)
+        return PropertySelection(name, vals)
+
+    def range_value(self, start, end, step=None):
+        start = self._to_node(start)
+        end = self._to_node(end)
+        if step is not None:
+            step = self._to_node(step)
+        return RangeValue(start, end, step)
+
+    def regex_selection(self, operand, pattern):
+        return Regex(self._to_node(operand), self._to_node(pattern))
+
+    def regex_value(self, tok):
+        return RegexValue(tok.value[1:-1])
+
+    def quoted_string_value(self, tok):
+        return QuotedStringValue(tok.value)
+
+    def string_value(self, tok):
+        return StringValue(tok.value)
+
+    def number(self, tok):
+        return Number(tok.value)
+
+    def const(self, token):
+        return Const(token.value)
+
+    def func(self, fname, arg):
+        return Func(str(fname), self._to_node(arg))
 
     def add(self, left, right):
         return Add(self._to_node(left), self._to_node(right))
@@ -514,55 +623,12 @@ class ASTBuilder(Transformer):
     def neg(self, value):
         return Neg(self._to_node(value))
 
-    def func(self, fname, arg):
-        # fname is Token or str, arg may be Tree
-        return Func(str(fname), self._to_node(arg))
-
-    def const(self, token):
-        return Const(token.value)
-
-    def number(self, tok):
-        return Number(tok.value)
-
-    def string(self, tok):
-        v = tok.value
-        if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-            return v[1:-1]
-        return v
-    
-    def string_value(self, tok):
-        v = tok.value
-        if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-            return v[1:-1]
-        return v
-
-    def range_selection(self, name, start, end, step=None):
-        start = self._to_node(start)
-        end = self._to_node(end)
-        if step is not None:
-            step = self._to_node(step)
-
-        return Range(name, start, end, step)
-
-    def regex(self, name, pattern_tok):
-        # name_tok may be Tree, so transform
-        name = self._to_node(name)
-        if isinstance(name, SelectionKeyword):
-            name = name.name
-        return Regex(name, pattern_tok.value[1:-1])
-
     def within_selection(self, within_token, dist, target_mask):
         mode = str(within_token).lower()
         return Within(dist, self._to_node(target_mask), mode=mode)
 
-    def property_selection(self, name, *values):
-        # Recursively transform all values, including handling Tree nodes for ranges
-        vals = []
-        name = self._to_node(name)
-        for v in values:
-            node = self._to_node(v)
-            vals.append(node)
-        return PropertySelection(name, vals)
+    def bonded_selection(self, distance, selection):
+        return Bonded(distance, self._to_node(selection))
 
     def same_selection(self, name, mask):
         name = self._to_node(name)
@@ -577,41 +643,17 @@ class ASTBuilder(Transformer):
         if tok.type == 'ALL':
             return All()
         if tok.type == 'NONE':
-            return NoneNode()
+            return None_()
         # If it's a macro, return Macro node
         if hasattr(self, 'macros') and tok.value in self.macros:
             return Macro(str(tok.value), None)
         # Otherwise, treat as a column/flag
         return SelectionKeyword(str(tok.value))
 
-    def xor_(self, left, right):
-        return Xor(self._to_node(left), self._to_node(right))
-
-    def comparison_selection(self, *items):
-        operands = [self._to_node(x) for x in items[0::2]]
-        operators = items[1::2]
-        mask = None
-        for left, op, right in zip(operands, operators, operands[1:]):
-            cmp = Comparison(left, str(op), right)
-            mask = cmp if mask is None else And(mask, cmp)
-        return mask
-
-    def bonded_selection(self, distance, selection):
-        return Bonded(distance, self._to_node(selection))
-
-    def sequence_selection_regex(self, pattern):
-        return SequenceSelectionRegex(str(pattern))
-
-    def sequence_selection(self, sequence):
-        return SequenceSelection(str(sequence))
-
-    def escaped_string(self, tok):
-        v = tok.value
-        return v[1:-1].replace('\\"', '"') if v.startswith('"') else v
-
-    def single_quoted_string(self, tok):
-        v = tok.value
-        return v[1:-1].replace("\\'", "'") if v.startswith("'") else v
+    def selection_keyword(self, token):
+        if isinstance(token, Tree):
+            return self._to_node(token)
+        return SelectionKeyword(str(token))
 
     def var_sel(self, tok):
         return SelectionKeyword(str(tok))
@@ -619,31 +661,14 @@ class ASTBuilder(Transformer):
     def macro_sel(self, tok):
         return Macro(str(tok).lstrip('@'), None)
 
-    def selection_keyword(self, token):
-        # If token is a Tree, transform it
-        if isinstance(token, Tree):
-            return self._to_node(token)
-        return SelectionKeyword(str(token))
+    def sequence_selection_regex(self, pattern):
+        return SequenceSelectionRegex(str(pattern))
 
-    def regex_selection(self, operand, pattern):
-        # operand may be a Tree or Token; pattern is a Token
-        name = self._to_node(operand)
-        if isinstance(name, SelectionKeyword):
-            name = name.name
-        return Regex(str(name), pattern.value[1:-1])
+    def sequence_selection(self, sequence):
+        return SequenceSelection(str(sequence))
 
     def start(self, expr):
-        return self._to_node(expr)
-
-    def number_range_selection(self, start, end, step=None):
-        if step is not None:
-            return Range(start, end, step)
-        return Range(start, end)
-    
-    def stride_range_selection(self, start, end, step=None):
-        if step is not None:
-            return Range(start, end, step)
-        return Range(start, end)
+        return Start(self._to_node(expr))
 
 # --- Evaluator ---
 class Evaluator:
@@ -817,8 +842,8 @@ def test_evaluator():
             print(df[result] if isinstance(result, pd.Series) else result)
         except Exception as e:
             print(f"Parse or evaluation failed: {e.__class__.__name__}: {e}")
-    return parser, builder, evaluator
+    return parser, builder, evaluator, df
 
 if __name__ == '__main__':
-    parser,builder,evaluator = test_evaluator()
+    parser,builder,evaluator,df = test_evaluator()
     print("Evaluator tests passed.")
