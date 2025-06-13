@@ -184,7 +184,7 @@ def count_atoms_with_prody(pdb_paths: list[str], selections: list[str]) -> dict[
             structure = parsePDB(pdb)
             try:
                 from prody import execDSSP, parseDSSP
-                dssp_file = execDSSP('1jge.pdb')
+                dssp_file = execDSSP(pdb_basename)
                 parseDSSP(dssp_file, structure)
             except Exception as e:
                 logger.warning(f"calcDSSP failed for {pdb_basename}: {e}")
