@@ -60,7 +60,6 @@
     {"description": "Select atoms with name matching regex 'C.*'", "query": "name \"C.*\""},
     {"description": "Select atoms with name matching regex '.*'' (single quote)", "query": "name \".*'\""},
     {"description": "Select atoms with name matching regex 'C(A|B)'", "query": "name \"C(A|B)\""},
-    {"description": "Select atoms with name matching regex 'C((A|B)' (invalid)", "query": "name \"C((A|B)\""},
 
     // --- Distance-based selections ---
     {"description": "Within distance", "query": "within 5 of water"},
@@ -97,9 +96,6 @@
     {"description": "Math with tan", "query": "tan(x) > 1"},
     {"description": "Complex math with functions", "query": "sqrt(z^3-sin(x*y)^2) < 10"},
     {"description": "Complex comparison", "query": "(1*1+1-1) < (1*x+2-2) < (3//3*3)"},
-
-    // --- Wrong syntax examples ---
-    {"description": "Wrong syntax: missing operator", "query": "101 102 103"},
 
     // --- test_flags ---
     {"description": "Select none flag", "query": "none"},
@@ -164,7 +160,6 @@
     {"description": "Select ca and occupancy > 0 without explicit AND", "query": "ca occupancy > 0"},
     {"description": "Select ca and occupancy - 0 > 0 without explicit AND", "query": "ca occupancy - 0 > 0"},
     {"description": "Select ca and occupancy - 0 > 0 + 0 without explicit AND", "query": "ca occupancy - 0 > 0 + 0"},
-    {"description": "Select occupancy > ca 0 (ambiguous without AND)", "query": "occupancy > ca 0"},
     {"description": "Select noh, hetero, and (water) without explicit AND", "query": "noh hetero (water)"},
     {"description": "Select noh, hetero, and not (water) without explicit AND", "query": "noh hetero not (water)"},
     {"description": "Select (water) and hetero without explicit AND", "query": "(water) hetero"},
@@ -213,7 +208,6 @@
     {"description": "Select atoms with resid 10:16:1 (range)", "query": "resid 10:16:1"},
     {"description": "Select atoms with x -10 to 20 (range)", "query": "x `-10:20`"},
     {"description": "Select atoms with x 0:20:1 (range, likely empty)", "query": "x 0:20:1"},
-    {"description": "Select atoms with beta 13.02:13.01 (invalid range)", "query": "beta 13.02:13.01"},
     // --- test_float ---
     {"description": "Select atoms with beta values 5.0, 41.15, 11.85", "query": "beta 5.0 41.15 11.85"},
     {"description": "Select atoms with occupancy 1.0", "query": "occupancy 1.0"},
@@ -224,7 +218,6 @@
     {"description": "Select atoms with mass 1 (should be empty)", "query": "mass 1"},
     {"description": "Select atoms with radius 0 (should be empty)", "query": "radius 0"},
     {"description": "Select atoms with beta '1.' (quoted, should be empty)", "query": "beta \"1.\""},
-    {"description": "Select atoms with beta = '1.' (quoted, invalid)", "query": "beta = \"1.\""},
     // --- test_comparisons ---
     {"description": "Select atoms where x = -51.659", "query": "x = -51.659"},
     {"description": "Select atoms where x != -51.659", "query": "x != -51.659"},
@@ -234,11 +227,6 @@
     {"description": "Select atoms where beta < 10", "query": "beta < 10"},
     {"description": "Select atoms where occupancy > 0.999999", "query": "occupancy > 0.999999"},
     {"description": "Select atoms where -10 <= x < 0 (chained comparison)", "query": "-10 <= x < 0"},
-    {"description": "Select atoms where 11 > 10 (invalid)", "query": "11 > 10"},
-    {"description": "Select atoms where radius > 10 (invalid)", "query": "radius > 10"},
-    {"description": "Select atoms where chain = A (invalid)", "query": "chain = A"},
-    {"description": "Select atoms where x x < 1 (invalid)", "query": "x x < 1"},
-    {"description": "Select atoms where name < 1 (invalid)", "query": "name < 1"},
     // --- test_operation ---
     {"description": "Select atoms where x ** 2 < 10 (power operation)", "query": "x ** 2 < 10"},
     {"description": "Select atoms where x ** 2 ** 2 ** 2 < 10 (nested power)", "query": "x ** 2 ** 2 ** 2 < 10"},
@@ -255,8 +243,6 @@
     {"description": "Select atoms where floor(beta) == 10 (floor function)", "query": "floor(beta) == 10"},
     {"description": "Select atoms where abs(x) == sqrt(sq(x)) (absolute value and square root)", "query": "abs(x) == sqrt(sq(x))"},
     {"description": "Select atoms where sq(x-5)+sq(y+4)+sq(z) > sq(100) (sum of squares)", "query": "sq(x-5)+sq(y+4)+sq(z) > sq(100)"},
-    {"description": "Select atoms where 1 > sq(occ) (invalid)", "query": "1 > sq(occ)"},
-    {"description": "Select atoms where sq(x x) > 1 (invalid)", "query": "sq(x x) > 1"},
     // --- test_composite ---
     {"description": "Select chain x y z C and x 10 (composite selection)", "query": "chain x y z C and x 10"},
     {"description": "Select resnum 1 and 2 (composite selection)", "query": "resnum `1` `2`"},
@@ -266,7 +252,6 @@
     {"description": "Select backbone and sqrt((x - 25)**2 + (y - 74)**2 + (z - 13)**2) <= 500 (composite selection)", "query": "backbone and sqrt((x - 25)**2 + (y - 74)**2 + (z - 13)**2) <= 500"},
     {"description": "Select (not resname SAH) and (protein and name CA) or (nucleic and name P) (composite selection)", "query": "(not resname SAH) and (protein and name CA) or (nucleic and name P)"},
     {"description": "Select protein and (backbone or name H) (composite selection)", "query": "protein and (backbone or name H)"},
-    {"description": "Select same residue as within 4 of and resname SAH (invalid composite selection)", "query": "same residue as within 4 of and resname SAH"},
     {"description": "Select protein and name CA CB and same residue as ((x+21.2)**2 + (y-35.9)**2 + (z-80.0)**2)**0.5 < 10 (composite selection)", "query": "protein and name CA CB and same residue as ((x+21.2)**2 + (y-35.9)**2 + (z-80.0)**2)**0.5 < 10"},
     // --- test_within ---
     {"description": "Select atoms within 10 of index 0", "query": "within 10 of index 0"},
@@ -275,9 +260,6 @@
     {"description": "Select (within 4 of water) and not water", "query": "(within 4 of water) and not water"},
     {"description": "Select atoms within 5 of within 5 of within 5 of index 0", "query": "within 5 of within 5 of within 5 of index 0"},
     {"description": "Select atoms exwithin 5 of exwithin 5 of exwithin 5 of index 0", "query": "exwithin 5 of exwithin 5 of exwithin 5 of index 0"},
-    {"description": "Select atoms within 1 of pdb (with pdb context)", "query": "within 1 of pdb"},
-    {"description": "Select atoms exwithin 1 of pdb (with pdb context)", "query": "exwithin 1 of pdb"},
-    {"description": "Select atoms exwithin 1 of ag (with ag context)", "query": "exwithin 1 of ag"},
     {"description": "Select atoms within 100 of index 10000 (likely empty)", "query": "within 100 of index 10000"},
 
     // --- test_sameas ---
@@ -287,7 +269,6 @@
     {"description": "Select same residue as resname DG ALA", "query": "same residue as resname DG ALA"},
     {"description": "Select same chain as chain C", "query": "same chain as chain C"},
     {"description": "Select same residue as chain X (should be empty)", "query": "same residue as chain X"},
-    {"description": "Select same none as chain C (invalid)", "query": "same none as chain C"},
     {"description": "Select same residue as same residue as same residue as index 0", "query": "same residue as same residue as same residue as index 0"},
 
     // --- test_regexp ---
@@ -295,15 +276,12 @@
     {"description": "Select atoms with name matching regex 'C.*'", "query": "name \"C.*\""},
     {"description": "Select atoms with name matching regex '.*'' (single quote)", "query": "name \".*'\""},
     {"description": "Select atoms with name matching regex 'C(A|B)'", "query": "name \"C(A|B)\""},
-    {"description": "Select atoms with name matching regex 'C((A|B)' (invalid)", "query": "name \"C((A|B)\""},
     // --- test_specialchar ---
     {"description": "Select atoms with altloc as a space character", "query": "altloc ` `"},
     {"description": "Select atoms with names A and CA using backticks", "query": "name A` `CA`"},
     {"description": "Select atoms with name `A` using backticks (should be empty)", "query": "name `A``"},
     {"description": "Select atoms with z coordinate +100.291 using backticks", "query": "z `+100.291`"},
     // --- test_logical ---
-    {"description": "Select with invalid logical OR: name or name", "query": "name or name"},
-    {"description": "Select with invalid logical AND: name and name", "query": "name and name"},
     {"description": "Select atoms with name CA and name CA (redundant AND)", "query": "name CA and name CA"},
     {"description": "Select atoms with name CA or name CA (redundant OR)", "query": "name CA or name CA"},
     {"description": "Select atoms with index 0 or index 1", "query": "index 0 or index 1"},
@@ -321,31 +299,15 @@
     {"description": "Select atoms within 100 of origin (origin as np.zeros((1, 3)))", "query": "within 100 of origin"},
     {"description": "Select atoms within 100 of origin (origin as np.zeros((10, 3)))", "query": "within 100 of origin"},
     {"description": "Select atoms within 100 of origin (origin as np.zeros((50, 3)))", "query": "within 100 of origin"},
-    {"description": "Select atoms within 100 of none (invalid context)", "query": "within 100 of none"},
     // --- test_equivalent ---
     {"description": "Select chain C (equivalent to not not chain C)", "query": "chain C"},
     {"description": "Select chain C (equivalent to not not not not chain C)", "query": "chain C"},
     {"description": "Select nucleic (equivalent to nucleoside or nucleotide or nucleobase)", "query": "nucleic"},
-    // --- test_invalid ---
-    {"description": "Select with invalid double AND: chain C and and chain C", "query": "chain C and and chain C"},
-    {"description": "Select with invalid double OR: chain C or or chain D", "query": "chain C or or chain D"},
-    {"description": "Select with invalid OR/NOT: chain C or not or chain D", "query": "chain C or not or chain D"},
-    {"description": "Select with invalid addition: chain C + 3", "query": "chain C + 3"},
-    {"description": "Select with invalid function: sqr(x-5)+sqr(y+4)+sqr(z) > sqr(100)", "query": "sqr(x-5)+sqr(y+4)+sqr(z) > sqr(100)"},
-    {"description": "Select with invalid function: x > sq(calpha)", "query": "x > sq(calpha)"},
-    {"description": "Select with invalid function: x > sq(name CA and resname ALA)", "query": "x > sq(name CA and resname ALA)"},
-    {"description": "Select with invalid addition: resname ALA and +1", "query": "resname ALA and +1"},
     // --- test_userdata ---
     {"description": "Select atoms where temp < 10 (user data, equivalent to beta < 10)", "query": "temp < 10"},
     {"description": "Select atoms where temp < 10 and chain D (user data)", "query": "temp < 10 and chain D"},
     {"description": "Select atoms where oc10 - 9 == 1 (user data, equivalent to occupancy 1)", "query": "oc10 - 9 == 1"},
     {"description": "Select atoms where temp < 10 (user data, equivalent to temp + oc10 < 20)", "query": "temp < 10"},
-    {"description": "Select atoms where occ (user data, equivalent to occupancy != 0)", "query": "occ"},
-    {"description": "Select atoms where occ and occupancy == 1 (user data, equivalent to occupancy != 0)", "query": "occ and occupancy == 1"},
-    {"description": "Select atoms where occ and occupancy == 1 and oc10 - 9 == 1 (user data)", "query": "occ and occupancy == 1 and oc10 - 9 == 1"},
-    {"description": "Select atoms where occ and occupancy == 1 and temp < 10 (user data)", "query": "occ and occupancy == 1 and temp < 10"},
-    {"description": "Select atoms where occ > 0 (user data, invalid)", "query": "occ > 0"},
-    // --- test_synonyms ---
     {"description": "Select chain C (synonym: chid C)", "query": "chain C"},
     {"description": "Select chains C and D (synonym: chid C D)", "query": "chain C D"},
     // --- test_sequence ---

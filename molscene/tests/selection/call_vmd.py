@@ -5,6 +5,7 @@ import logging
 from typing import Union
 import numpy as np
 import json
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -133,24 +134,6 @@ def count_atoms_with_vmd(pdb_paths: list[str], selections: list[str], tcl_script
     return result
 
 
-class TimeoutException(Exception):
-    pass
-
-def timeout_handler(signum, frame):
-    raise TimeoutException()
-
-def _prody_select_worker(args):
-    pdb_basename, sel, pdb_path = args
-    from prody import parsePDB
-    import numpy as np
-    try:
-        structure = parsePDB(pdb_path)
-        atoms = structure.select(sel)
-        count = len(atoms) if atoms is not None else 0
-        return (pdb_basename, sel, count)
-    except Exception:
-        return (pdb_basename, sel, np.nan)
-
 def count_atoms_with_prody(pdb_paths: list[str], selections: list[str]) -> dict[tuple[str, str], int]:
     """
     Count atoms for multiple PDB files and multiple selections using ProDy.
@@ -170,32 +153,61 @@ def count_atoms_with_prody(pdb_paths: list[str], selections: list[str]) -> dict[
     from prody import parsePDB
     logger = logging.getLogger(__name__)
     result = {}
-    for pdb in pdb_paths:
-        pdb_basename = os.path.basename(pdb)
-        logger.info(f"Processing PDB: {pdb_basename} with {len(selections)} selections")
+    backup_path = os.path.join(os.path.dirname(__file__), "atom_counts_backup.csv")
+    if os.path.exists(backup_path):
+        backup_df = pd.read_csv(backup_path)
+        # Build a lookup for (pdb, selection) -> count
+        backup_lookup = {(row["pdb"], row["selection"]): row["count_prody"] for _, row in backup_df.iterrows()}
+        # Determine which need to be calculated
+        to_calculate = []
+        for pdb in pdb_paths:
+            pdb_basename = os.path.basename(pdb)
+            for sel in selections:
+                key = (pdb_basename, sel)
+                count = backup_lookup.get(key, None)
+                if count is not None and not pd.isna(count):
+                    result[key] = int(count)
+                else:
+                    to_calculate.append((pdb, pdb_basename, sel))
+    else:
+        # If backup does not exist, calculate all
+        to_calculate = [(pdb, os.path.basename(pdb), sel) for pdb in pdb_paths for sel in selections]
+    # Calculate only missing/nan
+    # Group selections to calculate by pdb
+    from collections import defaultdict
+    pdb_to_sels = defaultdict(list)
+    for pdb, pdb_basename, sel in to_calculate:
+        pdb_to_sels[(pdb, pdb_basename)].append(sel)
+    idx = 0
+    for (pdb, pdb_basename), sels in pdb_to_sels.items():
         try:
             structure = parsePDB(pdb)
-        except Exception as e:
-            logger.warning(f"Failed to parse PDB: {pdb}: {e}")
-            for sel in selections:
-                result[(pdb_basename, sel)] = np.nan
-            continue
-        for i, sel in enumerate(selections):
             try:
-                atoms = structure.select(sel)
-                count = len(atoms) if atoms is not None else 0
-                result[(pdb_basename, sel)] = count
+                from prody import execDSSP, parseDSSP
+                dssp_file = execDSSP('1jge.pdb')
+                parseDSSP(dssp_file, structure)
             except Exception as e:
-                if i < 5:
-                    logger.info(f"[ProDy] Selection failed for '{sel}': {e}")
+                logger.warning(f"calcDSSP failed for {pdb_basename}: {e}")
+            for sel in sels:
+                try:
+                    atoms = structure.select(sel)
+                    count = len(atoms) if atoms is not None else 0
+                    result[(pdb_basename, sel)] = count
+                except Exception as e:
+                    logger.warning(f"Failed to select for {pdb_basename}, {sel}: {e}")
+                    result[(pdb_basename, sel)] = np.nan
+                idx += 1
+                if idx % 20 == 0:
+                    logger.info(f"[ProDy] Processed {idx} selections")
+        except Exception as e:
+            logger.warning(f"Failed to parse for {pdb_basename}: {e}")
+            for sel in sels:
                 result[(pdb_basename, sel)] = np.nan
-            if i % 100 == 0 and i > 0:
-                logger.info(f"[ProDy] Processed {i} selections for {pdb_basename}")
     return result
 
 def count_atoms_with_molscene(pdb_paths: list[str], selections: list[str]) -> dict[tuple[str, str], int]:
     """
-    Count atoms for multiple PDB files and multiple selections using the molscene transformer parser.
+    Count atoms for multiple PDB files and multiple selections using the molscene selection_ast parser.
 
     Parameters
     ----------
@@ -213,7 +225,7 @@ def count_atoms_with_molscene(pdb_paths: list[str], selections: list[str]) -> di
     import numpy as np
     import os
     import logging
-    from molscene.selection import transformer as molscene_transformer
+    from molscene.selection import selection_ast
 
     logger = logging.getLogger(__name__)
     result = {}
@@ -233,24 +245,24 @@ def count_atoms_with_molscene(pdb_paths: list[str], selections: list[str]) -> di
                 for sel in selections:
                     result[(pdb_basename, sel)] = np.nan
                 continue
-            # Build parser and transformer
-            grammar_path = os.path.join(os.path.dirname(molscene_transformer.__file__), "selection_syntax.lark")
-            with open(grammar_path) as f:
-                grammar_text = f.read()
-            from lark import Lark
-            parser = Lark(grammar_text, parser='lalr', propagate_positions=True, start=['start', 'expr'])
-            transformer = molscene_transformer.PandasTransformer(df, parser=parser)
+            # Use selection_ast for parsing and evaluating selections
+            config = selection_ast.SelectionConfig()
+            macros_loader = selection_ast.MacrosLoader(config.macros_path)
+            parser = selection_ast.SelectionParser(config.grammar_path)
+            builder = selection_ast.ASTBuilder(macros_loader.macros)
+            evaluator = selection_ast.Evaluator(df, macros_loader.macros, parser, builder)
             for sel in selections:
                 try:
-                    tree = parser.parse(sel, start='start')
-                    selected = transformer.transform(tree)
-                    count = len(selected)
+                    tree = parser.parse(sel)
+                    ast = builder.transform(tree)
+                    masked = evaluator.evaluate(ast)
+                    count = len(masked)#int(mask.sum()) if hasattr(mask, 'sum') else len(mask)
                     result[(pdb_basename, sel)] = count
                 except Exception as e:
                     logger.info(f"[molscene] Selection failed for '{sel}': {e}")
                     result[(pdb_basename, sel)] = np.nan
         except Exception as e:
-            logger.warning(f"molscene transformer failed for {pdb}: {e}")
+            logger.warning(f"molscene selection_ast failed for {pdb}: {e}")
             for sel in selections:
                 result[(pdb_basename, sel)] = np.nan
     return result
@@ -303,4 +315,10 @@ if __name__ == "__main__":
     print(f"Number of atoms (per selection):")
     print(df.to_string(index=False, max_colwidth=80))
 
-    df.to_csv("atom_countsv2.csv", index=False)
+    # Report selections where all methods failed (all counts are NaN)
+    mask = df[['count_vmd','count_prody','count_molscene']].isna().all(axis=1)
+    nan_all = df.loc[mask, 'selection']
+    nan_all_list = nan_all.tolist()
+    print(f"\nSelections where all methods failed (first 10 shown, total {len(nan_all_list)}):\n{nan_all_list[:10]}")
+
+    df.to_csv("atom_countsv3.csv", index=False)
