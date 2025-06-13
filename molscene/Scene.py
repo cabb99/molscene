@@ -81,8 +81,9 @@ class Scene(pandas.DataFrame):
                 'element': 'Element symbol',
                 'charge': 'Charge on the atom',
                 'model': 'Model number',
-                # 'res_index': 'Residue index',
-                # 'chain_index': 'Chain index',
+                # 'residue': 'Residue index',
+                # 'fragment': 'Chain index',
+                # 'index': 'Atom index',
                 'molecule': 'Molecule name'}
     
     
@@ -126,15 +127,15 @@ class Scene(pandas.DataFrame):
             self['resname'] = [''] * len(self)
         
         # Create an integer index for the chains
-        if 'chain_index' not in self.columns:
+        if 'fragment' not in self.columns:
             chain_map = {b: a for a, b in enumerate(self['chain'].unique())}
-            self['chain_index'] = self['chain'].map(chain_map).astype(int)
+            self['fragment'] = self['chain'].map(chain_map).astype(int)
 
         # Create an integer index for the residues
-        if 'res_index' not in self.columns:
+        if 'residue' not in self.columns:
             # Construct a global unique residue key
             residue_keys = (
-                self['chain_index'].astype(str) +
+                self['fragment'].astype(str) +
                 self['resid'].astype(str) +
                 self['iCode'].astype(str)
             )
@@ -144,11 +145,11 @@ class Scene(pandas.DataFrame):
             key_to_index = dict(zip(unique_keys, range(len(unique_keys))))
 
             # Map each residue key to its index
-            self['res_index'] = residue_keys.map(key_to_index).astype(int)
+            self['residue'] = residue_keys.map(key_to_index).astype(int)
 
         # Create an integer index for the atoms
-        if 'atom_index' not in self.columns:
-            self['atom_index'] = range(len(self))
+        if 'index' not in self.columns:
+            self['index'] = range(len(self))
 
 
         # Add metadata
@@ -289,7 +290,7 @@ class Scene(pandas.DataFrame):
                 sel &= (self[key].isin(kwargs[key]))
 
         # Assert there are not repeated atoms
-        index = self[sel][['chain_index', 'res_index', 'name']]
+        index = self[sel][['fragment', 'residue', 'name']]
         if len(index.duplicated()) == 0:
             print("Duplicated atoms found")
             print(index[index.duplicated()])
@@ -1043,8 +1044,8 @@ class Scene(pandas.DataFrame):
     
     def __sub__(self, other: Union["Scene", float, Sequence, pandas.Series]) -> "Scene":
         if isinstance(other, Scene):
-            logging.debug("Scene - Scene: remove atoms with matching atom_index")
-            mask = ~self['atom_index'].isin(other['atom_index'])
+            logging.debug("Scene - Scene: remove atoms with matching index")
+            mask = ~self['index'].isin(other['index'])
             df = self.loc[mask].reset_index(drop=True)
             return Scene(df, **self._meta)
         
