@@ -29,46 +29,45 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-def make_token_block(tokens: dict) -> tuple[str,str]:
+def make_token_block(tokens: dict, prefix='token') -> tuple[str, str, str]:
     """
-    Returns (block_text, names_alternation)
+    Returns (block_text, names_alternation, category_rules)
+    - block_text: all token rules, grouped by category, with comments
+    - names_alternation: all token names (for | alternation)
+    - category_rules: one rule per category, e.g. ?bool_biomolecule: PROTEIN | NUCLEIC | ...
     """
     lines = []
     names = []
-    print(f"Processing tokens: {len(tokens)} categories")
-
+    categories = []
     for category in tokens.keys():
-        print(f"Processing category: {category}")
+        
+        cat_tokens = []
+        # Add a comment for the category
+        lines.append(f"")
+        lines.append(f"// {category}")
         for token in tokens[category]:
-            print(f"Processing tokens: {token}")
             if token.startswith("_"):
                 continue
-            name = token.upper()
-            token = tokens[category][token]
-            print(token.keys())
+            name = token
+            token_data = tokens[category][token]
             macro_token = f"{name.upper()}"
             macro_rule = f'{macro_token} : "{name}"'
-            if "synonyms" in token and len(token["synonyms"]) > 0:
-                macro_rule += " | " + " | ".join(f'"{syn}"' for syn in token["synonyms"])
+            if "synonyms" in token_data and len(token_data["synonyms"]) > 0:
+                macro_rule += " | " + " | ".join(f'"{syn}"' for syn in token_data["synonyms"])
             lines.append(macro_rule)
             names.append(macro_token)
-    return "\n".join(lines), " | ".join(names)
-
-
-def make_keywords_block(keywords: dict) -> tuple[str,str]:
-    """
-    Returns (block_text, names_alternation)
-    """
-    lines = []
-    names = []
-    # keywords is a dict of categories, each containing dicts of keywords
-    for category in keywords.values():
-        print(f"Processing category: {category['name']}")
-        for kw in category.keys():
-            tok = kw.upper()
-            lines.append(f'{tok} : "{kw}"')
-            names.append(tok)
-    return "\n".join(lines), " | ".join(names)
+            cat_tokens.append(macro_token)
+        # Add a category rule if there are tokens
+        if cat_tokens:
+            # Use category name for rule, e.g. bool_biomolecule
+            rule_name = f"{prefix}_{category.lower()}"
+            category_rule = f"?{rule_name}: " + " | ".join(cat_tokens)
+            lines.append(category_rule)
+            categories.append(rule_name)
+        else:
+            for i in range(2):
+                lines.pop()
+    return "\n".join(lines), " | ".join(categories)
 
 
 def compute_last_token_pattern(grammar_text: str) -> str:
@@ -90,13 +89,15 @@ def compute_last_token_pattern(grammar_text: str) -> str:
     kw_pat = "|".join(map(re.escape, reserved))
     # Compose the last-token regex pattern (no ^/$ anchors, use \b after reserved alternation)
     last_token_pattern = (
-        r"(?![-'\"()])"  # not starting with these punctuations
-        rf"(?!(?:{kw_pat})\\b)"  # not a reserved word
-        r"(?!\\d+(?:\\.\\d*)?(?:[eE][+-]?\\d+)?\b)"  # not a number
+        r"""(?![-'"()])"""  # not starting with these punctuations
+        rf"""(?!(?:{kw_pat})\b)"""  # not a reserved word
+        r"""(?!\d+(?:\.\d*)?(?:[eE][+-]?\d+)?\b)"""  # not a number
         r"(?=[A-Za-z])"  # must start with a letter
-        r"[^()'\"\\s]+"  # match token
+        r"""[^()'"\s]+"""  # match token
     )
-    return last_token_pattern
+
+    last_token_pattern = last_token_pattern.replace('/', r'\/')
+    return f"/{last_token_pattern}/"
 
 
 def main():
@@ -106,8 +107,8 @@ def main():
     keywords  = load_json(KEYWORDS_JSON)["keywords"]
 
     # build macro & keyword sections
-    macros_block, macros_names = make_token_block(macros)
-    kw_block,    kw_names      = make_token_block(keywords)
+    macros_block, macros_names = make_token_block(macros, prefix='bool')
+    kw_block,    kw_names      = make_token_block(keywords, prefix='select')
 
     # first round of replacements
     interim = (
@@ -118,7 +119,6 @@ def main():
         .replace("<<KEYWORDS_NAMES>>", kw_names)
     )
 
-    # print(macros_block)
     # compute last‐token pattern
     last_tok = compute_last_token_pattern(interim)
 
@@ -127,7 +127,6 @@ def main():
 
     # write out
     OUT_FILE.write_text(final)
-    print(f" Generated grammar at {OUT_FILE}")
 
 
 if __name__ == "__main__":
