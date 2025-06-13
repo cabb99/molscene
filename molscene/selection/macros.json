@@ -278,9 +278,8 @@
         "name": "buried",
         "synonyms": [],
         "description": [
-          "Residues defined for the 'buried' flag in ProDy",
-          "Automatically extracted from `prody.flags.DEFAULTS['buried']`.",
-          "Residues: ALA, CYS, ILE, LEU, MET, PHE, TRP, VAL"
+          "Residues that are tipically buried in the protein core",
+          "Includes: ALA, CYS, ILE, LEU, MET, PHE, TRP, VAL"
         ],
         "definition": "resname ALA CYS ILE LEU MET PHE TRP VAL"
       },
@@ -288,9 +287,8 @@
         "name": "surface",
         "synonyms": [],
         "description": [
-          "Residues defined for the 'surface' flag in ProDy",
-          "Automatically extracted from `prody.flags.DEFAULTS['surface']`.",
-          "Residues: ARG, ASN, ASP, GLN, GLU, GLY, HIS, LYS, PRO, SER, THR, TYR"
+          "Residues that are tipically exposed on the protein surface",
+          "Includes: ARG, ASN, ASP, GLN, GLU, GLY, HIS, LYS, PRO, SER, THR, TYR"
         ],
         "definition": "resname ARG ASN ASP GLN GLU GLY HIS LYS PRO SER THR TYR"
       }
