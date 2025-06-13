@@ -255,7 +255,6 @@ SIDECHAIN  : "sidechain" | "is_sidechain"
 // SUGAR      : "sugar" | "is_sugar"
 // PHOSPHATE  : "phosphate" | "is_phosphate"
 // NUCLEOBASE : "nucleobase" | "is_nucleobase"
-// STRUCTURE  : "structure"
 
 ?bool_structure: BACKBONE | SIDECHAIN | CALPHA
 
@@ -401,7 +400,7 @@ RESID      : "resid" | "resi" | "resnum"
 CHAINID    : "chainid"
 SEGMENT_ID : "segment_id" | "segname"
 CONFORMATION : "conformation"
-STRUCTURE  : "structure"
+STRUCTURE  : "structure" | "secondary"
 
 ?select_residue: RESIDUE | RESNAME | RESID | CHAINID | SEGMENT_ID | CONFORMATION | STRUCTURE
 
