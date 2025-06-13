@@ -397,7 +397,7 @@ NFRAG    : "nfrag"
 // --------------------------
 RESIDUE    : "residue" | "resSeq"
 RESNAME    : "resname" | "resn"
-RESID      : "resid" | "resi"
+RESID      : "resid" | "resi" | "resnum"
 CHAINID    : "chainid"
 SEGMENT_ID : "segment_id" | "segname"
 CONFORMATION : "conformation"
@@ -430,8 +430,8 @@ ATAN    : "atan" | "arctan"
 EXP     : "exp"
 LOG     : "log" | "ln"
 LOG10   : "log10"
-SQRT    : "sqrt"
-SQUARE  : "sq" | "sqr" | "square"
+SQRT    : /sqrt\b/
+SQUARE  : /sq(?!rt)\b/ | /sqr\b/ | /square\b/
 ABS     : "abs"
 FLOOR   : "floor"
 CEIL    : "ceil"
@@ -457,5 +457,5 @@ E       : "e"
 
 //VALUE.-10: /(?!(to|:)\b)[^\s()]+/       // Last resort for anything not matched by other rules (most greedy)
 //VALUE.-10: /(?![-'"()])(?!(?:all|none|protein|nucleic|dna|rna|water|lipid|ion|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|amino|purine|pyrimidine|hetero|cg|tA|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|backbone|sidechain|small|medium|large|buried|surface|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|=\~|not|or|and|xor|<=|>=|==|<|>|!=|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|\/\/|%|\*\*|beta|occupancy|altloc|mass|charge|radius|type|\$|x|y|z|fx|fy|fz|vx|vy|vz|code|name|index|bonds|fragment|pfrag|nfrag|residue|resname|resid|chainid|segment_id|conformation|sin|cos|tan|asin|acos|atan|exp|log|log10|sqrt|sq|abs)\b)[^()'"\s]+/       // Last resort for anything not matched by other rules (most greedy)
-STRING_VALUE.-10: /(?![-'"()])(?!(?:all|everything|none|nothing|protein|is_protein|nucleic|is_nucleic|dna|is_dna|rna|is_rna|water|waters|is_water|lipid|lipids|ion|ions|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|amino|purine|pyrimidine|hetero|cg|tA|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|ca|alpha|backbone|is_backbone|sidechain|is_sidechain|small|medium|large|buried|surface|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|=\~|not|!|or|\|\||\||and|\&\&|\&|xor|<=|le|>=|ge|==|=|eq|<|lt|>|gt|!=|ne|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|%|\*\*|\^|beta|occupancy|altloc|mass|charge|radius|type|element|symbol|\$|x|y|z|fx|fy|fz|vx|vy|vz|code|rescode|resc|name|index|bonds|numbonds|fragment|pfrag|nfrag|residue|resSeq|resname|resn|resid|resi|chainid|segment_id|segname|conformation|sin|cos|tan|asin|acos|atan|exp|log|log10|sqrt|sq|abs|pi|e)\b)(?!\d+(?:\.\d*)?(?:[eE][+-]?\d+)?\b)(?=[A-Za-z])[^()'"\s]+/   // Last resort for anything not matched by other rules (most greedy)
+STRING_VALUE.-10: /(?![-'"()])(?!(?:all|everything|none|resnum|nothing|protein|is_protein|nucleic|is_nucleic|dna|is_dna|rna|is_rna|water|waters|is_water|lipid|lipids|ion|ions|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|purine|pyrimidine|cg|ta|small|medium|large|buried|surface|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|ca|alpha|backbone|is_backbone|sidechain|is_sidechain|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|not|!|or|\|\||\||and|\&\&|\&|xor|<=|le|>=|ge|==|=|eq|<|lt|>|gt|!=|ne|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|%|\*\*|\^|beta|occupancy|altloc|mass|charge|radius|type|element|symbol|x|y|z|fx|fy|fz|vx|vy|vz|code|rescode|resc|name|index|bonds|numbonds|fragment|pfrag|nfrag|residue|resSeq|resname|resn|resid|resi|chainid|segment_id|segname|conformation|structure|\$|sin|cos|tan|asin|arcsin|acos|arccos|atan|arctan|exp|log|ln|log10|sqrt|sq|sqr|square|abs|floor|ceil|cosh|sinh|tanh|pi|e)\b)(?!\d+(?:\.\d*)?(?:[eE][+-]?\d+)?\b)(?=[A-Za-z])[^()'"\s]+/   // Last resort for anything not matched by other rules (most greedy)
 

@@ -613,8 +613,8 @@ class ASTBuilder(Transformer):
     def const(self, token):
         return Const(token.value)
 
-    def func(self, fname, arg):
-        return Func(str(fname), self._to_node(arg))
+    def func(self, fname:Token, arg):
+        return Func(fname.type.lower(), self._to_node(arg))
 
     def add(self, left, right):
         return Add(self._to_node(left), self._to_node(right))
