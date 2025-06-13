@@ -54,28 +54,28 @@
     "biomolecules": {
       "protein": {
         "name": "protein",
-        "synonyms": ["aminoacid","is_protein"],
+        "synonyms": ["is_protein"],
         "short": "all amino acids",
         "description": "All standard and non-standard amino acids (must have a CA atom).",
         "definition": "_std_aa or _nonstd_aa"
       },
       "nucleic": {
         "name": "nucleic",
-        "synonyms": [],
+        "synonyms": ["is_nucleic"],
         "short": "all nucleic residues",
         "description": "All nucleobases, nucleotides, and nucleosides.",
         "definition": "_nucleobase or _nucleotide or _nucleoside"
       },
       "dna": {
         "name": "dna",
-        "synonyms": [],
+        "synonyms": ["is_dna"],
         "short": "DNA residues",
         "description": "All DNA nucleotides (deoxy- forms only).",
         "definition": "resname DA DC DG DT DU"
       },
       "rna": {
         "name": "rna",
-        "synonyms": [],
+        "synonyms": ["is_rna"],
         "short": "RNA residues",
         "description": "All RNA nucleotides (ribose forms only).",
         "definition": "resname A C G U T"
@@ -270,7 +270,7 @@
         "synonyms": [],
         "short": "heteroatom",
         "description": "Any heteroatom (placeholder, X is a generic symbol).",
-        "definition": "type HETAM"
+        "definition": "recname HETAM"
       }
     },
     "residue_types_exposed": {

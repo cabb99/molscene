@@ -16,10 +16,10 @@ SINGLE_QUOTED_STRING : /'(?:\\.|[^'\\])*'/
 // ---------------------------
 // LOGICAL OPERATIONS
 // ---------------------------
+// (OR < XOR < AND < NOT)
 
 start: expr -> start
 
-// Logical precedence (OR < XOR < AND < NOT)
 ?expr: or_expr
 
 ?or_expr: xor_expr
@@ -76,7 +76,7 @@ range_value: number_expr _TO number_expr
 regex_selection: math_expr _REGEXP_OP regex_value
 
 // Within selection
-within_selection: whithin_op number_expr _OF expr
+within_selection: within_op number_expr _OF expr
 
 // Bonded selection
 bonded_selection: bonded_op number_expr _TO expr
@@ -89,16 +89,15 @@ sequence_selection: _SEQUENCE regex_value
 // Same selection
 same_selection: _SAME selection_keyword _AS expr
 
+// Selection values
 string_value: STRING_VALUE
 quoted_string_value: SINGLE_QUOTED_STRING
 regex_value: ESCAPED_STRING
 
-// Property selection
-// ?property_single: math_expr number_expr
-// property_list.-10: property_single (COMMA? selection_value)+        -> property_list
+
 
 //───────────────────────────────────────────────────────────────────────────────
-// 1) Purely-numeric sub-grammar (no selection_keyword ever):
+// Purely arithmetic sub-grammar (no selection_keyword ever):
 //───────────────────────────────────────────────────────────────────────────────
 ?number_expr: num_sum
 
@@ -170,116 +169,15 @@ regex_value: ESCAPED_STRING
 ALL        : "all" | "everything"                 
 NONE       : "none" | "nothing"                   
 
-?bool_universal: ALL
-               | NONE 
+?bool_universal: ALL | NONE 
 
-// Universal keywords
-PROTEIN    : "protein" | "is_protein"
-NUCLEIC    : "nucleic" | "is_nucleic"
-DNA        : "dna" | "is_dna"
-RNA        : "rna" | "is_rna"
-WATER      : "water" | "waters" | "is_water"
-LIPID      : "lipid" | "lipids"
-ION        : "ion" | "ions"
-SUGAR      : "sugar"
-GLYCAN     : "glycan"
-HEME       : "heme"
-DRUDE      : "drude"
-SOLVENT    : "solvent"
-
-?bool_biomolecule: PROTEIN | NUCLEIC | DNA | RNA | WATER | LIPID | ION | SUGAR | GLYCAN | HEME | DRUDE | SOLVENT
-
-// Residue Type aromaticity
-AROMATIC   : "aromatic"
-ALIPHATIC  : "aliphatic"
-
-// Residue Type polarity
-POLAR      : "polar"
-HYDROPHOBIC: "hydrophobic"
-
-// Residue Type charge
-CHARGED    : "charged"
-ACIDIC     : "acidic"
-BASIC      : "basic"
-NEUTRAL    : "neutral"
-
-// Residue Type ring structure
-ACYCLIC    : "acyclic"
-CYCLIC     : "cyclic"
-
-// Residue Type nucleotide size
-PURINE     : "purine"
-PYRIMIDINE : "pyrimidine"
-
-// Residue Type nucleotide pair
-CG         : "cg"
-TA         : "ta"
-
-?bool_residue: AROMATIC | ALIPHATIC | POLAR | HYDROPHOBIC | CHARGED | ACIDIC | BASIC | NEUTRAL | ACYCLIC | CYCLIC | PURINE | PYRIMIDINE | CG | TA
-// Size / Exposure
-SMALL      : "small"
-MEDIUM     : "medium"
-LARGE      : "large"
-
-?bool_size: SMALL | MEDIUM | LARGE
-
-// Exposure
-
-BURIED     : "buried"
-SURFACE    : "surface"
-?bool_exposure: BURIED | SURFACE
-
-
-
-// Atom Type
-CARBON     : "carbon"
-HYDROGEN   : "hydrogen"
-NITROGEN   : "nitrogen"
-OXYGEN     : "oxygen"
-SULFUR     : "sulfur"
-PHOSPHORUS : "phosphorus"
-FLUORINE   : "fluorine"
-CHLORINE   : "chlorine"
-BROMINE    : "bromine"
-IODINE     : "iodine"
-METAL      : "metal"
-NOH        : "noh"
-HEAVY      : "heavy"
-
-?bool_atom: CARBON | HYDROGEN | NITROGEN | OXYGEN | SULFUR | PHOSPHORUS | FLUORINE | CHLORINE | BROMINE | IODINE | METAL | NOH | HEAVY
-
-// Structural Role
-CALPHA   : "calpha" | "ca" | "alpha"
-BACKBONE   : "backbone" | "is_backbone"
-SIDECHAIN  : "sidechain" | "is_sidechain"
-// SUGAR      : "sugar" | "is_sugar"
-// PHOSPHATE  : "phosphate" | "is_phosphate"
-// NUCLEOBASE : "nucleobase" | "is_nucleobase"
-
-?bool_structure: BACKBONE | SIDECHAIN | CALPHA
-
-
-
-
-
-// Secondary Structure
-HELIX          : "helix"
-SHEET          : "sheet"
-TURN           : "turn"
-COIL           : "coil"
-ALPHA_HELIX    : "alpha_helix"
-PI_HELIX       : "pi_helix"
-HELIX310       : "helix_3_10"
-EXTENDED_BETA  : "extended_beta"
-BRIDGE_BETA    : "bridge_beta"
-
-?bool_secondary: ALPHA_HELIX | PI_HELIX | HELIX | HELIX310 | EXTENDED_BETA | BRIDGE_BETA | SHEET | TURN | COIL
+<<MACROS>>
 
 MACRO: "@" CNAME
 
-bool_macro: MACRO -> macro_sel
+bool_macro: MACRO -> macro_selection
 
-bool_keyword: bool_universal | bool_biomolecule | bool_residue | bool_atom | bool_structure | bool_size | bool_secondary| bool_macro
+bool_keyword: bool_universal | bool_macro | <<MACROS_NAMES>>
 
 // --------------------------
 // Tokens
@@ -323,7 +221,7 @@ BONDED    : "bonded"
 EXBONDED  : "exbonded"
 _TO      : "to"    
 _SEQUENCE  : "sequence"
-?whithin_op: WITHIN | EXWITHIN
+?within_op: WITHIN | EXWITHIN
 ?bonded_op : BONDED | EXBONDED
 
 // MATH OPERATORS
@@ -348,72 +246,13 @@ _POW         : "**" | "^"
 // Selection Keywords
 // --------------------------
 
-// Atom Properties
-BETA      : "beta"
-OCCUPANCY : "occupancy"
-ALTLOC    : "altloc"
-MASS      : "mass"
-CHARGE    : "charge"
-RADIUS    : "radius"
-ELEMENT   : "type" | "element" | "symbol"
-
-?select_property: BETA | OCCUPANCY | ALTLOC | MASS | CHARGE | RADIUS | ELEMENT
-
-// Vector Information
-X        : "x"
-Y        : "y"
-Z        : "z"
-FX       : "fx"
-FY       : "fy"
-FZ       : "fz"
-VX       : "vx"
-VY       : "vy"
-VZ       : "vz"
-
-?select_position: X | Y | Z
-
-// --------------------------
-// Indexing / Codes / Labels
-// --------------------------
-CODE     : "code" | "rescode" | "resc"
-NAME_KW  : "name"
-INDEX_KW : "index"
-
-?select_indexing: CODE | NAME_KW | INDEX_KW
-
-// --------------------------
-// Connectivity / Fragmentation
-// --------------------------
-BONDS    : "bonds" | "numbonds"
-FRAGMENT : "fragment"
-PFRAG    : "pfrag"
-NFRAG    : "nfrag"
-
-?select_fragment: BONDS | FRAGMENT | PFRAG | NFRAG
-
-// --------------------------
-// Residue Information
-// --------------------------
-RESIDUE    : "residue" | "resSeq"
-RESNAME    : "resname" | "resn"
-RESID      : "resid" | "resi" | "resnum"
-CHAINID    : "chainid"
-SEGMENT_ID : "segment_id" | "segname"
-CONFORMATION : "conformation"
-STRUCTURE  : "structure" | "secondary"
-
-?select_residue: RESIDUE | RESNAME | RESID | CHAINID | SEGMENT_ID | CONFORMATION | STRUCTURE
+<<KEYWORDS>>
 
 VARIABLE  : "$"CNAME
 
 select_variable: VARIABLE -> var_sel
 
-selection_keyword: select_property
-                 | select_position
-                 | select_indexing
-                 | select_fragment
-                 | select_residue
-                 | select_variable
+selection_keyword: select_variable | <<KEYWORDS_NAMES>>
 
 // ----------------------------
 // MATH KEYWORDS
@@ -453,8 +292,5 @@ E       : "e"
 // Values
 // --------------------------
 
-
-//VALUE.-10: /(?!(to|:)\b)[^\s()]+/       // Last resort for anything not matched by other rules (most greedy)
-//VALUE.-10: /(?![-'"()])(?!(?:all|none|protein|nucleic|dna|rna|water|lipid|ion|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|amino|purine|pyrimidine|hetero|cg|tA|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|backbone|sidechain|small|medium|large|buried|surface|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|=\~|not|or|and|xor|<=|>=|==|<|>|!=|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|\/\/|%|\*\*|beta|occupancy|altloc|mass|charge|radius|type|\$|x|y|z|fx|fy|fz|vx|vy|vz|code|name|index|bonds|fragment|pfrag|nfrag|residue|resname|resid|chainid|segment_id|conformation|sin|cos|tan|asin|acos|atan|exp|log|log10|sqrt|sq|abs)\b)[^()'"\s]+/       // Last resort for anything not matched by other rules (most greedy)
-STRING_VALUE.-10: /(?![-'"()])(?!(?:all|everything|none|resnum|nothing|protein|is_protein|nucleic|is_nucleic|dna|is_dna|rna|is_rna|water|waters|is_water|lipid|lipids|ion|ions|sugar|glycan|heme|drude|solvent|aromatic|aliphatic|polar|hydrophobic|charged|acidic|basic|neutral|acyclic|cyclic|purine|pyrimidine|cg|ta|small|medium|large|buried|surface|carbon|hydrogen|nitrogen|oxygen|sulfur|phosphorus|fluorine|chlorine|bromine|iodine|metal|noh|heavy|calpha|ca|alpha|backbone|is_backbone|sidechain|is_sidechain|helix|sheet|turn|coil|alpha_helix|pi_helix|helix_3_10|extended_beta|bridge_beta|@|not|!|or|\|\||\||and|\&\&|\&|xor|<=|le|>=|ge|==|=|eq|<|lt|>|gt|!=|ne|:|,|same|as|within|exwithin|of|bonded|exbonded|to|sequence|\+|\-|\*|\/|%|\*\*|\^|beta|occupancy|altloc|mass|charge|radius|type|element|symbol|x|y|z|fx|fy|fz|vx|vy|vz|code|rescode|resc|name|index|bonds|numbonds|fragment|pfrag|nfrag|residue|resSeq|resname|resn|resid|resi|chainid|segment_id|segname|conformation|structure|\$|sin|cos|tan|asin|arcsin|acos|arccos|atan|arctan|exp|log|ln|log10|sqrt|sq|sqr|square|abs|floor|ceil|cosh|sinh|tanh|pi|e)\b)(?!\d+(?:\.\d*)?(?:[eE][+-]?\d+)?\b)(?=[A-Za-z])[^()'"\s]+/   // Last resort for anything not matched by other rules (most greedy)
+STRING_VALUE.-10: <<LAST_TOKEN>>   // Last resort for anything not matched by other rules (most greedy)
 
