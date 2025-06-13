@@ -246,6 +246,11 @@ def count_atoms_with_molscene(pdb_paths: list[str], selections: list[str]) -> di
                     result[(pdb_basename, sel)] = np.nan
                 continue
             # Use selection_ast for parsing and evaluating selections
+            df2 = df[df['model'].isin([1,'.'])]  # Filter to model '1' if needed
+            if len(df2) == 0:
+                print(df['model'].unique())
+                raise ValueError(f"No atoms found in {pdb_basename} after filtering by model.")
+            df=df2  # Use filtered DataFrame for selections
             config = selection_ast.SelectionConfig()
             macros_loader = selection_ast.MacrosLoader(config.macros_path)
             parser = selection_ast.SelectionParser(config.grammar_path)
