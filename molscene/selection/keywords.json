@@ -86,7 +86,7 @@
       }
     },
 
-    "Special names": {
+    "special_names": {
       "recname": {
         "synonyms": ["atom", "hetatm"],
         "type": "str",
@@ -113,7 +113,7 @@
       }
     },
 
-    "Required data": {
+    "required_data": {
       "x": {
         "synonyms": ["Cartn_x"],
         "type": "float",
@@ -172,7 +172,7 @@
       }
     },
 
-    "Standard optional data": {
+    "optional_data": {
       "segment": {
         "synonyms": ["segname", "label_entity_id"],
         "type": "str",

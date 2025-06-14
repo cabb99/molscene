@@ -30,7 +30,7 @@ class SelectionConfig:
     """Centralized configuration for grammar and macros paths."""
     def __init__(self, grammar_path=None, macros_path=None):
         self.grammar_path = grammar_path or os.environ.get('SELECTION_GRAMMAR_PATH') or \
-            os.path.join(os.path.dirname(__file__), 'selection_syntax.lark')
+            os.path.join(os.path.dirname(__file__), 'grammar.lark')
         self.macros_path = macros_path or os.environ.get('SELECTION_MACROS_PATH') or \
             os.path.join(os.path.dirname(__file__), 'macros.json')
 
