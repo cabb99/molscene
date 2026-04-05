@@ -78,6 +78,58 @@ def test_from_cif(ciffile):
     assert atom['altloc'] == 'G'
 
 
+def test_pdb_columns(pdbfile):
+
+    s = Scene.from_pdb(pdbfile)
+    # Atom 0: GLY N — occupancy=1.0, beta=13.32, charge=0
+    a = s.loc[0]
+    assert a['x'] == pytest.approx(28.412)
+    assert a['y'] == pytest.approx(-8.856)
+    assert a['z'] == pytest.approx(19.490)
+    assert a['occupancy'] == pytest.approx(1.0)
+    assert a['beta'] == pytest.approx(13.32)
+    assert a['charge'] == pytest.approx(0.0)
+    assert a['element'] == 'N'
+
+    # Atom 500: ARG CB — occupancy=1.0, beta=17.41, charge=0
+    a = s.loc[500]
+    assert a['occupancy'] == pytest.approx(1.0)
+    assert a['beta'] == pytest.approx(17.41)
+    assert a['charge'] == pytest.approx(0.0)
+
+    # Atom 1576: MET SD — occupancy=0.59, beta=25.42, charge=0
+    a = s.loc[1576]
+    assert a['occupancy'] == pytest.approx(0.59)
+    assert a['beta'] == pytest.approx(25.42)
+    assert a['charge'] == pytest.approx(0.0)
+
+
+def test_cif_columns(ciffile):
+    
+    s = Scene.from_cif(ciffile)
+    # Atom 0: GLY N — same coordinates as PDB
+    a = s.loc[0]
+    assert a['x'] == pytest.approx(28.412)
+    assert a['y'] == pytest.approx(-8.856)
+    assert a['z'] == pytest.approx(19.490)
+    assert a['occupancy'] == pytest.approx(1.0)
+    assert a['beta'] == pytest.approx(13.32)
+    assert a['charge'] == pytest.approx(0.0)
+    assert a['element'] == 'N'
+
+    # Atom 500: ARG CB
+    a = s.loc[500]
+    assert a['occupancy'] == pytest.approx(1.0)
+    assert a['beta'] == pytest.approx(17.41)
+    assert a['charge'] == pytest.approx(0.0)
+
+    # Atom 1576: MET SD
+    a = s.loc[1576]
+    assert a['occupancy'] == pytest.approx(0.59)
+    assert a['beta'] == pytest.approx(25.42)
+    assert a['charge'] == pytest.approx(0.0)
+
+
 def test_select(pdbfile):
     s = Scene.from_pdb(pdbfile)
     # print(s['altLoc'].unique())

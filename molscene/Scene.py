@@ -379,7 +379,7 @@ class Scene(pandas.DataFrame):
         pdb_atoms['z'] = pandas.to_numeric(pdb_atoms['z'], errors='coerce').fillna(0.0)
         pdb_atoms['occupancy'] = pandas.to_numeric(pdb_atoms['occupancy'], errors='coerce').fillna(1.0)
         pdb_atoms['beta'] = pandas.to_numeric(pdb_atoms['beta'], errors='coerce').fillna(1.0)
-        pdb_atoms['charge'] = pandas.to_numeric(pdb_atoms['beta'], errors='coerce').fillna(0.0)
+        pdb_atoms['charge'] = pandas.to_numeric(pdb_atoms['charge'], errors='coerce').fillna(0.0)
         pdb_atoms['model'] = model_numbers
         pdb_atoms['molecule'] = 0
 
@@ -468,7 +468,10 @@ class Scene(pandas.DataFrame):
         cif_atoms['z'] = pandas.to_numeric(cif_atoms['z'], errors='coerce').fillna(0.0)
         cif_atoms['occupancy'] = pandas.to_numeric(cif_atoms['occupancy'], errors='coerce').fillna(1.0)
         cif_atoms['beta'] = pandas.to_numeric(cif_atoms['beta'], errors='coerce').fillna(1.0)
-        cif_atoms['charge'] = pandas.to_numeric(cif_atoms['beta'], errors='coerce').fillna(0.0)
+        if 'charge' in cif_atoms.columns:
+            cif_atoms['charge'] = pandas.to_numeric(cif_atoms['charge'], errors='coerce').fillna(0.0)
+        else:
+            cif_atoms['charge'] = 0.0
                 
         return cls(cif_atoms, **kwargs)
 
