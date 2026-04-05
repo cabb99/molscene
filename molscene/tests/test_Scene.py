@@ -71,11 +71,20 @@ def test_from_cif(ciffile):
     atom = s.loc[1576]
     #print(atom)
     assert atom['serial'] == 1577
-    assert atom['resid'] == 170
+    assert atom['resid'] == 1170  # auth_seq_id (author numbering)
     assert atom['name'] == 'SD'
     assert atom['resname'] == 'MET'
     assert atom['chain'] == 'A'
     assert atom['altloc'] == 'G'
+
+
+def test_cif_pdb_resid_agreement(pdbfile, ciffile):
+    # CIF resid (now auth_seq_id) should match PDB resid for the same atom
+    pdb = Scene.from_pdb(pdbfile)
+    cif = Scene.from_cif(ciffile)
+    for idx in [0, 500, 1576]:
+        assert pdb.loc[idx, 'resid'] == cif.loc[idx, 'resid'], (
+            f"resid mismatch at index {idx}: PDB={pdb.loc[idx, 'resid']} CIF={cif.loc[idx, 'resid']}")
 
 
 def test_pdb_columns(pdbfile):

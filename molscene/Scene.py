@@ -435,12 +435,18 @@ class Scene(pandas.DataFrame):
         cif_atoms = pandas.DataFrame(atom_data,columns=atom_header)
         
         # Rename columns to pdb convention
+        # NOTE: resid uses auth_seq_id (author numbering), NOT label_seq_id.
+        # This follows the ProDy convention: resid/resnum always refers to the author's
+        # residue sequence number. For PDB files, this is the number from columns 23-26.
+        # For CIF files, auth_seq_id is the author's original numbering (may have gaps),
+        # while label_seq_id is CIF-internal sequential numbering (1-based, restarts per
+        # entity/chain). label_seq_id is kept as a separate column for users who need it.
         _cif_pdb_rename = {'id': 'serial',
                            'label_atom_id': 'name',
                            'label_alt_id': 'altloc',
                            'label_comp_id': 'resname',
                            'label_asym_id': 'chain',
-                           'label_seq_id': 'resid',
+                           'auth_seq_id': 'resid',
                            'pdbx_PDB_ins_code': 'iCode',
                            'Cartn_x': 'x',
                            'Cartn_y': 'y',
