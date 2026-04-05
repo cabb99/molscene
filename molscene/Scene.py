@@ -135,8 +135,8 @@ class Scene(pandas.DataFrame):
         if 'residue' not in self.columns:
             # Construct a global unique residue key
             residue_keys = (
-                self['fragment'].astype(str) +
-                self['resid'].astype(str) +
+                self['fragment'].astype(str) + '_' +
+                self['resid'].astype(str) + '_' +
                 self['iCode'].astype(str)
             )
 

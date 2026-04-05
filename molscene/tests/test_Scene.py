@@ -130,6 +130,22 @@ def test_cif_columns(ciffile):
     assert a['charge'] == pytest.approx(0.0)
 
 
+def test_residue_key_no_collision():
+    # Without a separator, fragment=1 + resid=11 concatenates to "111",
+    # which collides with fragment=11 + resid=1.
+    # Using a separator ('_') avoids this: "1_11_" vs "11_1_".
+    data = pd.DataFrame({
+        'x': [0, 0], 'y': [0, 0], 'z': [0, 0],
+        'chain': ['A', 'B'],
+        'resid': [11, 1],
+        'fragment': [1, 11],
+        'iCode': ['', ''],
+    })
+    s = Scene(data)
+    # fragment=1 resid=11 and fragment=11 resid=1 must get different residue indices
+    assert s.loc[0, 'residue'] != s.loc[1, 'residue']
+
+
 def test_select(pdbfile):
     s = Scene.from_pdb(pdbfile)
     # print(s['altLoc'].unique())
