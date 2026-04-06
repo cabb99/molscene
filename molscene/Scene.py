@@ -134,9 +134,9 @@ class Scene(pandas.DataFrame):
                 'element': 'Element symbol',
                 'charge': 'Charge on the atom',
                 'model': 'Model number',
-                # 'residue': 'Residue index',
-                # 'fragment': 'Chain index',
-                # 'index': 'Atom index',
+                # 'residue': 'Residue index (0-based)',
+                # 'fragment': 'Chain index (0-based)',
+                # 'index': 'Atom index (0-based)',
                 'molecule': 'Molecule name'}
     
     

@@ -19,10 +19,11 @@ from pathlib import Path
 
 import json   # pip install json5
 
-TEMPLATE      = Path("molscene/selection/grammar_template.lark")
-OUT_FILE      = Path("molscene/selection/grammar.lark")
-MACROS_JSON   = Path("molscene/selection/macros.json")
-KEYWORDS_JSON = Path("molscene/selection/keywords.json")
+_SCRIPT_DIR   = Path(__file__).resolve().parent
+TEMPLATE      = _SCRIPT_DIR / "grammar_template.lark"
+OUT_FILE      = _SCRIPT_DIR / "grammar.lark"
+MACROS_JSON   = _SCRIPT_DIR / "macros.json"
+KEYWORDS_JSON = _SCRIPT_DIR / "keywords.json"
 
 
 def load_json(path: Path) -> dict:
