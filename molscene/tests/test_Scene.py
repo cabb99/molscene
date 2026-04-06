@@ -562,3 +562,116 @@ def test_get_sequence_1zbl():
 
 if __name__ == '__main__':
     pass
+
+
+# --- Tests for phi/psi dihedral calculation ---
+
+def test_compute_phi_psi_columns(pdbfile):
+    """compute_phi_psi should add phi and psi columns."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_phi_psi()
+    assert 'phi' in result.columns
+    assert 'psi' in result.columns
+    assert len(result) == len(s)
+
+
+def test_compute_phi_psi_first_residue_no_phi(pdbfile):
+    """The first residue in a chain has no phi (needs C from prev residue)."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_phi_psi()
+    # Find the first residue index in fragment 0
+    frag0 = result[result['fragment'] == 0]
+    first_res = frag0['residue'].min()
+    first_atoms = frag0[frag0['residue'] == first_res]
+    assert first_atoms['phi'].isna().all()
+
+
+def test_compute_phi_psi_last_residue_no_psi(pdbfile):
+    """The last residue in a chain has no psi (needs N from next residue)."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_phi_psi()
+    frag0 = result[result['fragment'] == 0]
+    last_res = frag0['residue'].max()
+    last_atoms = frag0[frag0['residue'] == last_res]
+    assert last_atoms['psi'].isna().all()
+
+
+def test_compute_phi_psi_range(pdbfile):
+    """Interior phi/psi should be in [-180, 180]."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_phi_psi()
+    valid_phi = result['phi'].dropna()
+    valid_psi = result['psi'].dropna()
+    assert (valid_phi >= -180).all() and (valid_phi <= 180).all()
+    assert (valid_psi >= -180).all() and (valid_psi <= 180).all()
+
+
+def test_compute_phi_psi_known_values():
+    """Test phi/psi with a minimal synthetic backbone (known geometry)."""
+    # Build 3 residues of backbone atoms in an extended (beta) conformation.
+    # Extended sheet: phi ≈ -120°, psi ≈ +120° (roughly).
+    # We'll use ideal coordinates for an anti-parallel beta strand.
+    coords = {
+        # Residue 0: N, CA, C
+        'N0':  np.array([0.000, 0.000, 0.000]),
+        'CA0': np.array([1.458, 0.000, 0.000]),
+        'C0':  np.array([2.009, 1.420, 0.000]),
+        # Residue 1: N, CA, C
+        'N1':  np.array([3.327, 1.556, 0.000]),
+        'CA1': np.array([3.983, 2.850, 0.000]),
+        'C1':  np.array([5.483, 2.711, 0.000]),
+        # Residue 2: N, CA, C
+        'N2':  np.array([6.071, 1.517, 0.000]),
+        'CA2': np.array([7.519, 1.358, 0.000]),
+        'C2':  np.array([8.087, 2.760, 0.000]),
+    }
+    rows = []
+    for i in range(3):
+        for aname in ['N', 'CA', 'C']:
+            c = coords[f'{aname}{i}']
+            rows.append({
+                'x': c[0], 'y': c[1], 'z': c[2],
+                'name': aname, 'element': aname[0],
+                'chain': 'A', 'resid': i + 1,
+                'resname': 'ALA',
+            })
+
+    s = Scene(pd.DataFrame(rows))
+    result = s.compute_phi_psi()
+
+    # Residue 0: no phi, has psi
+    res0 = result[result['resid'] == 1]
+    assert res0['phi'].isna().all()
+    assert res0['psi'].notna().all()
+
+    # Residue 1 (middle): has both phi and psi
+    res1 = result[result['resid'] == 2]
+    assert res1['phi'].notna().all()
+    assert res1['psi'].notna().all()
+
+    # Residue 2: has phi, no psi
+    res2 = result[result['resid'] == 3]
+    assert res2['phi'].notna().all()
+    assert res2['psi'].isna().all()
+
+    # Check angles are finite and in valid range (coplanar coords give 0 or ±180)
+    phi_1 = res1['phi'].iloc[0]
+    psi_1 = res1['psi'].iloc[0]
+    assert -180 <= phi_1 <= 180, f"phi out of range: {phi_1}"
+    assert -180 <= psi_1 <= 180, f"psi out of range: {psi_1}"
+    # For the all-z=0 planar layout, dihedrals are exactly 0 or ±180
+    assert abs(phi_1) == pytest.approx(180, abs=1) or phi_1 == pytest.approx(0, abs=1)
+    assert abs(psi_1) == pytest.approx(180, abs=1) or psi_1 == pytest.approx(0, abs=1)
+
+
+def test_compute_phi_psi_multichain(pdbfile):
+    """Phi/psi should not bleed across chains."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_phi_psi()
+    for _, frag in result.groupby('fragment'):
+        first_res = frag['residue'].min()
+        last_res = frag['residue'].max()
+        # First residue of each chain: no phi
+        assert frag[frag['residue'] == first_res]['phi'].isna().all()
+        # Last residue of each chain: no psi
+        assert frag[frag['residue'] == last_res]['psi'].isna().all()

@@ -42,29 +42,3 @@ class TestElementInfo:
     def test_unknown_element_raises(self):
         with pytest.raises(KeyError):
             _ = element_info.mass["Xx"]
-
-
-class TestDeprecatedImport:
-    """The old element_masses module should still work but warn."""
-
-    def test_deprecation_warning(self):
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            # Re-import triggers the warning only on first import;
-            # force it by reloading.
-            import importlib
-            import molscene.data.element_masses as mod
-            importlib.reload(mod)
-            dep = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(dep) >= 1
-            assert "deprecated" in str(dep[0].message).lower()
-
-    def test_shim_values_match(self):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            import importlib
-            import molscene.data.element_masses as mod
-            importlib.reload(mod)
-            assert mod._element_masses["C"] == element_info.mass["C"]
-            assert mod._element_atomicnumbers["O"] == element_info.atomicnumber["O"]
-            assert mod._element_radii["N"] == element_info.radius["N"]

@@ -78,6 +78,19 @@ def _read_cif_category(file_path, category):
     return pandas.DataFrame(data, columns=header)
 
 
+def _dihedral(p0, p1, p2, p3):
+    """Return the dihedral angle in degrees defined by four points."""
+    b1 = p1 - p0
+    b2 = p2 - p1
+    b3 = p3 - p2
+    n1 = np.cross(b1, b2)
+    n2 = np.cross(b2, b3)
+    m = np.cross(n1, b2 / np.linalg.norm(b2))
+    x = np.dot(n1, n2)
+    y = np.dot(m, n2)
+    return np.degrees(np.arctan2(y, x))
+
+
 class _FrameAccessor:
     def __init__(self, scene: "Scene"):
         self._scene = scene
@@ -225,6 +238,74 @@ class Scene(pandas.DataFrame):
             out['mass'] = out['element'].map(element_info.mass).fillna(0)
         else:
             Warning("Mass column already exists, skipping.")
+        return out
+
+    def compute_phi_psi(self):
+        """Compute backbone phi and psi dihedral angles (degrees) per atom.
+
+        Phi (φ) = dihedral(C_prev, N_i, CA_i, C_i)
+        Psi (ψ) = dihedral(N_i, CA_i, C_i, N_next)
+
+        Terminal residues and non-protein atoms get ``NaN``.
+
+        Returns
+        -------
+        Scene
+            Copy of ``self`` with ``phi`` and ``psi`` columns added.
+        """
+        out = self.copy()
+        phi = np.full(len(out), np.nan)
+        psi = np.full(len(out), np.nan)
+
+        # Work per fragment (chain) so residue numbering from different
+        # chains never mixes.
+        for _, frag in out.groupby('fragment'):
+            # Extract backbone atoms: N, CA, C
+            backbone = frag[frag['name'].isin(['N', 'CA', 'C'])]
+
+            # Group by residue and collect ordered coords (N, CA, C)
+            residue_atoms: dict = {}  # residue_idx -> {'N': xyz, 'CA': xyz, 'C': xyz}
+            for row in backbone.itertuples():
+                res = row.residue
+                if res not in residue_atoms:
+                    residue_atoms[res] = {}
+                residue_atoms[res][row.name] = np.array([row.x, row.y, row.z])
+
+            # Keep only residues that have all three backbone atoms
+            complete = {
+                r: atoms for r, atoms in residue_atoms.items()
+                if 'N' in atoms and 'CA' in atoms and 'C' in atoms
+            }
+            sorted_res = sorted(complete)
+
+            # Walk consecutive pairs
+            for i in range(len(sorted_res)):
+                res = sorted_res[i]
+                atoms_i = complete[res]
+                mask = frag['residue'] == res
+
+                # Phi: need C from previous residue
+                if i > 0:
+                    prev = sorted_res[i - 1]
+                    atoms_prev = complete[prev]
+                    angle = _dihedral(
+                        atoms_prev['C'], atoms_i['N'],
+                        atoms_i['CA'], atoms_i['C'],
+                    )
+                    phi[mask.values] = angle
+
+                # Psi: need N from next residue
+                if i < len(sorted_res) - 1:
+                    nxt = sorted_res[i + 1]
+                    atoms_next = complete[nxt]
+                    angle = _dihedral(
+                        atoms_i['N'], atoms_i['CA'],
+                        atoms_i['C'], atoms_next['N'],
+                    )
+                    psi[mask.values] = angle
+
+        out['phi'] = phi
+        out['psi'] = psi
         return out
 
     def compute_secondary_structure(self, **kwargs):
