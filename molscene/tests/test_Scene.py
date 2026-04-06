@@ -675,3 +675,139 @@ def test_compute_phi_psi_multichain(pdbfile):
         assert frag[frag['residue'] == first_res]['phi'].isna().all()
         # Last residue of each chain: no psi
         assert frag[frag['residue'] == last_res]['psi'].isna().all()
+
+
+# ---------- compute_bonds / numbonds / pfrag / nfrag ----------
+
+def test_compute_bonds_columns(pdbfile):
+    """compute_bonds adds numbonds, pfrag, nfrag columns."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_bonds()
+    assert 'numbonds' in result.columns
+    assert 'pfrag' in result.columns
+    assert 'nfrag' in result.columns
+
+
+def test_compute_bonds_ca_numbonds(pdbfile):
+    """CA atoms in standard residues should have 2-3 bonds."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_bonds()
+    ca = result[result['name'] == 'CA']
+    # Filter to first occurrence per residue (altloc duplicates get 0 bonds)
+    ca = ca.drop_duplicates(subset=['chain', 'resid', 'icode', 'name'], keep='first')
+    assert (ca['numbonds'] >= 2).all()
+    assert (ca['numbonds'] <= 3).all()
+
+
+def test_compute_bonds_pfrag_isolation():
+    """Protein fragments from separate chains get distinct pfrag ids."""
+    s = Scene.from_pdb(Path('molscene/data/1zbl.pdb'))
+    result = s.compute_bonds()
+    m1 = result[result['model'] == 1]
+    protein = m1[m1['resname'].isin(['ALA', 'ARG', 'ASN', 'ASP', 'CYS',
+        'GLN', 'GLU', 'GLY', 'HIS', 'ILE', 'LEU', 'LYS', 'MET', 'PHE',
+        'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'])]
+    chains = protein.groupby('chain')['pfrag'].nunique()
+    # Each protein chain should have exactly 1 pfrag
+    assert (chains == 1).all()
+
+
+def test_compute_bonds_multi_model():
+    """Both models in a multi-model file should get the same bond counts."""
+    s = Scene.from_pdb(Path('molscene/data/1zbl.pdb'))
+    result = s.compute_bonds()
+    m1 = result[result['model'] == 1]
+    m2 = result[result['model'] == 2]
+    assert len(m1) == len(m2)
+    assert m1['numbonds'].mean() == pytest.approx(m2['numbonds'].mean())
+    assert (m1['numbonds'] > 0).sum() == (m2['numbonds'] > 0).sum()
+
+
+def test_compute_bonds_nfrag():
+    """Nucleic fragments should be detected in structures with DNA/RNA."""
+    s = Scene.from_pdb(Path('molscene/data/1zbl.pdb'))
+    result = s.compute_bonds()
+    m1 = result[result['model'] == 1]
+    nuc = m1[m1['nfrag'] > 0]
+    assert len(nuc) > 0, "should detect nucleic fragments in 1zbl"
+
+
+def test_compute_bonds_water_zero():
+    """Water molecules should have 0 bonds (no connectivity in CCD)."""
+    s = Scene.from_pdb(Path('molscene/data/1zbl.pdb'))
+    result = s.compute_bonds()
+    water = result[result['resname'] == 'HOH']
+    if len(water) > 0:
+        assert (water['numbonds'] == 0).all()
+
+
+def test_compute_bonds_stores_meta(pdbfile):
+    """Bond adjacency list should be stored in _meta['bonds']."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_bonds()
+    assert hasattr(result, '_meta') and 'bonds' in result._meta
+    adj = result._meta['bonds']
+    assert len(adj) == len(result)
+
+
+# ---------- compute_anisou ----------
+
+_ANISOU_PDB = """\
+ATOM      1  N   ALA A   1       1.000   2.000   3.000  1.00 10.00           N
+ANISOU    1  N   ALA A   1      200    300    400     50     60     70       N
+ATOM      2  CA  ALA A   1       2.000   3.000   4.000  1.00 12.00           C
+ANISOU    2  CA  ALA A   1      500    600    700     80     90    100       C
+ATOM      3  C   ALA A   1       3.000   4.000   5.000  1.00 14.00           C
+END
+"""
+
+
+def test_compute_anisou_pdb(tmp_path):
+    """compute_anisou reads ANISOU records from a PDB file."""
+    pdb = tmp_path / "anisou.pdb"
+    pdb.write_text(_ANISOU_PDB)
+    s = Scene.from_pdb(pdb)
+    assert 'ufx' not in s.columns  # not loaded eagerly
+    result = s.compute_anisou()
+    assert 'ufx' in result.columns
+    assert 'ufy' in result.columns
+    assert 'ufz' in result.columns
+    # Atom 1: U11=200 → 0.02, U22=300 → 0.03, U33=400 → 0.04
+    row0 = result.iloc[0]
+    assert row0['ufx'] == pytest.approx(0.02)
+    assert row0['ufy'] == pytest.approx(0.03)
+    assert row0['ufz'] == pytest.approx(0.04)
+    # Atom 2: U11=500 → 0.05, U22=600 → 0.06, U33=700 → 0.07
+    row1 = result.iloc[1]
+    assert row1['ufx'] == pytest.approx(0.05)
+    assert row1['ufy'] == pytest.approx(0.06)
+    assert row1['ufz'] == pytest.approx(0.07)
+
+
+def test_compute_anisou_missing_records(tmp_path):
+    """Atoms without ANISOU records get 0.0."""
+    pdb = tmp_path / "anisou.pdb"
+    pdb.write_text(_ANISOU_PDB)
+    s = Scene.from_pdb(pdb)
+    result = s.compute_anisou()
+    # Atom 3 (C) has no ANISOU record
+    row2 = result.iloc[2]
+    assert row2['ufx'] == 0.0
+    assert row2['ufy'] == 0.0
+    assert row2['ufz'] == 0.0
+
+
+def test_compute_anisou_no_source_raises():
+    """compute_anisou raises if no source file is recorded."""
+    s = Scene([[0, 0, 0]])
+    with pytest.raises(ValueError, match="no source file"):
+        s.compute_anisou()
+
+
+def test_compute_anisou_no_anisou_in_file(pdbfile):
+    """Files without ANISOU records get all-zero columns."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_anisou()
+    assert (result['ufx'] == 0.0).all()
+    assert (result['ufy'] == 0.0).all()
+    assert (result['ufz'] == 0.0).all()

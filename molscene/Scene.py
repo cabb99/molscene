@@ -8,10 +8,12 @@ import numpy as np
 import io
 import tempfile
 from typing import Union, Tuple, Sequence, List
+from pathlib import Path
 import re
 from scipy.spatial import cKDTree, distance
 import logging
 from . import utils
+from .bonds import compute_bonds as _compute_bonds
 from .selection.transformer import PandasTransformer
 from .data.element_info import element_info
 
@@ -89,6 +91,7 @@ def _dihedral(p0, p1, p2, p3):
     x = np.dot(n1, n2)
     y = np.dot(m, n2)
     return np.degrees(np.arctan2(y, x))
+
 
 
 class _FrameAccessor:
@@ -306,6 +309,131 @@ class Scene(pandas.DataFrame):
 
         out['phi'] = phi
         out['psi'] = psi
+        return out
+
+    def compute_bonds(self):
+        """Build bond graph from residue topology.
+
+        Adds the following columns:
+
+        - ``numbonds`` — number of covalent bonds per atom.
+        - ``pfrag`` — connected-component index among protein residues
+          (``-1`` for non-protein atoms).
+        - ``nfrag`` — connected-component index among nucleic-acid residues
+          (``-1`` for non-nucleic atoms).
+
+        The bond adjacency list is stored in ``_meta['bonds']``.
+
+        Returns
+        -------
+        Scene
+            Copy with the new columns.
+        """
+        return _compute_bonds(self)
+
+    def compute_anisou(self):
+        """Read anisotropic displacement parameters from the source file.
+
+        Adds columns ``ufx``, ``ufy``, ``ufz`` (diagonal elements of the
+        anisotropic U tensor: U11, U22, U33 in Å²).  Atoms without ANISOU
+        records get ``0.0``.
+
+        The Scene must have been loaded via :meth:`from_pdb` or
+        :meth:`from_cif` so that ``_meta['source_file']`` is set.
+
+        Returns
+        -------
+        Scene
+            Copy with the new columns.
+        """
+        source = self._meta.get('source_file')
+        fmt = self._meta.get('source_format')
+        if source is None:
+            raise ValueError(
+                "Cannot compute ANISOU: no source file recorded. "
+                "Load via Scene.from_pdb() or Scene.from_cif()."
+            )
+
+        out = self.copy()
+        if fmt == 'pdb':
+            out = self._read_anisou_pdb(out, source)
+        elif fmt == 'cif':
+            out = self._read_anisou_cif(out, source)
+        else:
+            raise ValueError(f"Unknown source format: {fmt!r}")
+        return out
+
+    @staticmethod
+    def _read_anisou_pdb(out, file_path):
+        """Parse ANISOU records from a PDB file and merge into *out*."""
+        anisou_lines = []
+        model_number = 1
+        with open(file_path, 'r') as f:
+            for line in f:
+                if len(line) > 6:
+                    header = line[:6]
+                    if header == 'ANISOU':
+                        try:
+                            serial = int(line[6:11])
+                            u11 = int(line[28:35]) / 10000.0
+                            u22 = int(line[35:42]) / 10000.0
+                            u33 = int(line[42:49]) / 10000.0
+                            anisou_lines.append({
+                                'serial': serial, 'model': model_number,
+                                'ufx': u11, 'ufy': u22, 'ufz': u33,
+                            })
+                        except (ValueError, IndexError):
+                            pass
+                    elif header == 'MODEL ':
+                        model_number = int(line[10:14])
+        if anisou_lines:
+            anisou_df = pandas.DataFrame(anisou_lines)
+            out = out.merge(
+                anisou_df, on=['serial', 'model'], how='left',
+            )
+        for col in ('ufx', 'ufy', 'ufz'):
+            if col not in out.columns:
+                out[col] = 0.0
+            else:
+                out[col] = out[col].fillna(0.0)
+        return out
+
+    @staticmethod
+    def _read_anisou_cif(out, file_path):
+        """Parse anisotropic data from a CIF file and merge into *out*."""
+        aniso = _read_cif_category(file_path, '_atom_site_anisotrop')
+        if len(aniso) > 0 and 'id' in aniso.columns:
+            _aniso_rename = {}
+            for col in aniso.columns:
+                if col == 'id':
+                    _aniso_rename[col] = 'serial'
+                elif 'U[1][1]' in col:
+                    _aniso_rename[col] = 'ufx'
+                elif 'U[2][2]' in col:
+                    _aniso_rename[col] = 'ufy'
+                elif 'U[3][3]' in col:
+                    _aniso_rename[col] = 'ufz'
+            aniso = aniso.rename(_aniso_rename, axis=1)
+            if 'serial' in aniso.columns:
+                aniso['serial'] = pandas.to_numeric(
+                    aniso['serial'], errors='coerce'
+                ).fillna(0).astype(int)
+                for col in ('ufx', 'ufy', 'ufz'):
+                    if col in aniso.columns:
+                        aniso[col] = pandas.to_numeric(
+                            aniso[col], errors='coerce'
+                        ).fillna(0.0)
+                merge_cols = ['serial'] + [
+                    c for c in ('ufx', 'ufy', 'ufz') if c in aniso.columns
+                ]
+                out = out.merge(
+                    aniso[merge_cols], on='serial', how='left',
+                )
+        for col in ('ufx', 'ufy', 'ufz'):
+            if col not in out.columns:
+                out[col] = 0.0
+            else:
+                out[col] = out[col].fillna(0.0)
         return out
 
     def compute_secondary_structure(self, **kwargs):
@@ -566,6 +694,8 @@ class Scene(pandas.DataFrame):
         pdb_atoms['model'] = model_numbers
         pdb_atoms['molecule'] = 0
 
+        kwargs['source_file'] = str(Path(file).resolve())
+        kwargs['source_format'] = 'pdb'
         if len(mod_lines) > 0:
             kwargs.update(dict(modified_residues=pandas.DataFrame(mod_lines)))
 
@@ -630,12 +760,13 @@ class Scene(pandas.DataFrame):
         else:
             cif_atoms['charge'] = 0.0
 
-        # Map label_entity_id to segment if available
-        if 'label_entity_id' in cif_atoms.columns:
-            cif_atoms['segment'] = cif_atoms['label_entity_id']
-        else:
-            cif_atoms['segment'] = ''
-                
+        # CIF has no equivalent of PDB segment (cols 72-76). VMD leaves it empty
+        # for CIF files, and label_entity_id is a different concept (entity grouping,
+        # not CHARMM/NAMD segment). Default to empty string.
+        cif_atoms['segment'] = ''
+
+        kwargs['source_file'] = str(Path(file_path).resolve())
+        kwargs['source_format'] = 'cif'
         return cls(cif_atoms, **kwargs)
 
     @classmethod
