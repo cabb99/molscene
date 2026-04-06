@@ -12,6 +12,7 @@ from scipy.spatial import cKDTree, distance
 import logging
 from . import utils
 from .selection.transformer import PandasTransformer
+from .data.element_masses import _element_masses
 
 __author__ = 'Carlos Bueno'
 
@@ -155,6 +156,14 @@ class Scene(pandas.DataFrame):
         # Add metadata
         for attr, value in kwargs.items():
             self._meta[attr] = value
+
+    def compute_mass(self):
+        out = self.copy()
+        if 'mass' not in out.columns:
+            out['mass'] = out['element'].map(_element_masses).fillna(0)
+        else:
+            Warning("Mass column already exists, skipping.")
+        return out
 
     def set_coordinate_frames(self, frames: np.ndarray):
         """

@@ -155,6 +155,23 @@ def test_residue_key_no_collision():
     assert s.loc[0, 'residue'] != s.loc[1, 'residue']
 
 
+def test_compute_mass(pdbfile):
+    s = Scene.from_pdb(pdbfile)
+    s_mass = s.compute_mass()
+    assert 'mass' in s_mass.columns
+    # Original should not be modified
+    assert 'mass' not in s.columns
+    # Check known element masses for a few atoms
+    # Atom 0: element N -> 14.007
+    assert s_mass.loc[0, 'mass'] == pytest.approx(14.007)
+    # Atom 500: element C -> 12.011
+    assert s_mass.loc[500, 'mass'] == pytest.approx(12.011)
+    # Atom 1576: element S -> 32.06
+    assert s_mass.loc[1576, 'mass'] == pytest.approx(32.06)
+    # All masses should be > 0 for real atoms
+    assert (s_mass['mass'] > 0).all()
+
+
 def test_select(pdbfile):
     s = Scene.from_pdb(pdbfile)
     # print(s['altLoc'].unique())
