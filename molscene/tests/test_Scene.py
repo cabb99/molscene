@@ -172,6 +172,27 @@ def test_compute_mass(pdbfile):
     assert (s_mass['mass'] > 0).all()
 
 
+def test_compute_secondary_structure(ciffile):
+    s = Scene.from_cif(ciffile)
+    result = s.compute_secondary_structure()
+    # Row count should be preserved (one SS per residue, broadcast to all atoms)
+    assert len(result) == len(s)
+    # secondary_structure column should be present
+    assert 'secondary_structure' in result.columns
+    # Check specific residue assignments
+    # GLY A 1001 -> coil (.)
+    r1001 = result[(result['chain'] == 'A') & (result['resid'] == 1001)].iloc[0]
+    assert r1001['secondary_structure'] == '.'
+    # PHE A 1005 -> strand (E)
+    r1005 = result[(result['chain'] == 'A') & (result['resid'] == 1005)].iloc[0]
+    assert r1005['secondary_structure'] == 'E'
+    # LEU A 1111 -> helix (H)
+    r1111 = result[(result['chain'] == 'A') & (result['resid'] == 1111)].iloc[0]
+    assert r1111['secondary_structure'] == 'H'
+    # accessibility should be numeric
+    assert r1005['accessibility'] == '0.0'
+
+
 def test_select(pdbfile):
     s = Scene.from_pdb(pdbfile)
     # print(s['altLoc'].unique())

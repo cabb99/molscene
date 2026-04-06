@@ -6,6 +6,7 @@ Python library to allow easy handling of coordinate files for molecular dynamics
 import pandas
 import numpy as np
 import io
+import tempfile
 from typing import Union, Tuple, Sequence, List
 import re
 from scipy.spatial import cKDTree, distance
@@ -25,6 +26,57 @@ _protein_residues = {'ALA': 'A', 'CYS': 'C', 'ASP': 'D', 'GLU': 'E',
 _DNA_residues = {'DA': 'A', 'DC': 'C', 'DG': 'G', 'DT': 'T'}
 
 _RNA_residues = {'A': 'A', 'C': 'C', 'G': 'G', 'U': 'U'}
+
+_cif_tokenizer = re.compile(r"""'[^']*'      |  # single-quoted
+                                "[^"]*"     |  # double-quoted
+                                \#[^\n]*    |  # comment
+                                [^\s'"#]+      # unquoted
+                            """, re.VERBOSE)
+
+def _read_cif_category(file_path, category):
+    """
+    Read a single loop category from a CIF file.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the CIF file.
+    category : str
+        The CIF category prefix to extract (e.g. '_atom_site', '_dssp_struct_summary').
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with columns from the category.
+    """
+    data = []
+    header = []
+    in_section = False
+    prefix = category + '.'
+
+    with open(file_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+
+            if not line or line.startswith('#'):
+                continue
+
+            if line.startswith('loop_'):
+                in_section = False
+
+            elif line.startswith(prefix):
+                header.append(line.split('.')[-1])
+                in_section = True
+
+            elif in_section:
+                data.append([
+                    token.strip("'\"")
+                    for token in _cif_tokenizer.findall(line)
+                    if not token.startswith('#')
+                ])
+
+    return pandas.DataFrame(data, columns=header)
+
 
 class _FrameAccessor:
     def __init__(self, scene: "Scene"):
@@ -164,6 +216,36 @@ class Scene(pandas.DataFrame):
         else:
             Warning("Mass column already exists, skipping.")
         return out
+
+    def compute_secondary_structure(self, **kwargs):
+        """
+        Calculate secondary structure using DSSP.
+        """
+        import subprocess
+        try:
+            subprocess.call(['mkdssp', '--version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            raise FileNotFoundError("DSSP is not installed or not found in PATH.")
+
+        # Use DSSP to calculate secondary structure
+        with tempfile.NamedTemporaryFile('w+', suffix='.cif', delete=False) as dsspout:
+            with tempfile.NamedTemporaryFile('w+', suffix='.cif', delete=False) as tmp:
+                #Run dssp
+                self.write_cif(tmp.name)
+                subprocess.call(['mkdssp', '--calculate-accessibility', tmp.name, dsspout.name])
+
+        dssp_df = _read_cif_category(dsspout.name, '_dssp_struct_summary')
+
+        # Rename columns to pdb convention
+        _dssp_rename = {'label_comp_id': 'resname',
+                        'label_asym_id': 'chain',
+                        'label_seq_id': 'resid'}
+
+        dssp_df = dssp_df.rename(_dssp_rename, axis=1)
+        dssp_df['resid'] = dssp_df['resid'].astype(int)
+
+        # Merge dssp_df to self using the 'resid', 'chain' and 'resname' columns
+        return self.merge(dssp_df, on=['resid', 'chain', 'resname'], how='left', suffixes=('', '_dssp'))
 
     def set_coordinate_frames(self, frames: np.ndarray):
         """
@@ -408,40 +490,8 @@ class Scene(pandas.DataFrame):
         Returns:
             list: List of parsed atom data rows.
         """
-       
-        atom_data = []
-        atom_header = []
-        in_atom_section = False
-        tokenizer = re.compile(r"""'[^']*'      |  # single-quoted
-                                    "[^"]*"     |  # double-quoted
-                                    \#[^\n]*    |  # comment
-                                    [^\s'"#]+      # unquoted
-                                """, re.VERBOSE)
 
-        with open(file_path, 'r') as file:
-            for line in file:
-                line = line.strip()
-                
-                # Skip empty lines and comments
-                if not line or line.startswith("#"):
-                    continue
-                
-                # Detect the start of the _atom section
-                if line.startswith("loop_"):
-                    in_atom_section = False  # Reset section flag
-                
-                elif line.startswith("_atom_site."):
-                    atom_header.append(line.split('.')[-1])
-                    in_atom_section = True  # Found relevant section, start collecting headers
-                
-                elif in_atom_section:
-                        atom_data.append([
-                                            token.strip("'\"")        # strip any surrounding quotes
-                                            for token in tokenizer.findall(line)
-                                            if not token.startswith('#')  # drop the comment token (and everything after)
-                                        ])
-
-        cif_atoms = pandas.DataFrame(atom_data,columns=atom_header)
+        cif_atoms = _read_cif_category(file_path, '_atom_site')
         
         # Rename columns to pdb convention
         # NOTE: resid uses auth_seq_id (author numbering), NOT label_seq_id.
