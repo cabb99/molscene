@@ -1,0 +1,593 @@
+{
+  "_source": "PubChem Periodic Table \u2014 https://pubchem.ncbi.nlm.nih.gov/periodic-table/",
+  "H": {
+    "atomicnumber": 1,
+    "mass": 1.008,
+    "radius": 1.2
+  },
+  "He": {
+    "atomicnumber": 2,
+    "mass": 4.0026,
+    "radius": 1.4
+  },
+  "Li": {
+    "atomicnumber": 3,
+    "mass": 7.0,
+    "radius": 1.82
+  },
+  "Be": {
+    "atomicnumber": 4,
+    "mass": 9.012183,
+    "radius": 1.53
+  },
+  "B": {
+    "atomicnumber": 5,
+    "mass": 10.81,
+    "radius": 1.92
+  },
+  "C": {
+    "atomicnumber": 6,
+    "mass": 12.011,
+    "radius": 1.7
+  },
+  "N": {
+    "atomicnumber": 7,
+    "mass": 14.007,
+    "radius": 1.55
+  },
+  "O": {
+    "atomicnumber": 8,
+    "mass": 15.999,
+    "radius": 1.52
+  },
+  "F": {
+    "atomicnumber": 9,
+    "mass": 18.99840316,
+    "radius": 1.35
+  },
+  "Ne": {
+    "atomicnumber": 10,
+    "mass": 20.18,
+    "radius": 1.54
+  },
+  "Na": {
+    "atomicnumber": 11,
+    "mass": 22.9897693,
+    "radius": 2.27
+  },
+  "Mg": {
+    "atomicnumber": 12,
+    "mass": 24.305,
+    "radius": 1.73
+  },
+  "Al": {
+    "atomicnumber": 13,
+    "mass": 26.981538,
+    "radius": 1.84
+  },
+  "Si": {
+    "atomicnumber": 14,
+    "mass": 28.085,
+    "radius": 2.1
+  },
+  "P": {
+    "atomicnumber": 15,
+    "mass": 30.973762,
+    "radius": 1.8
+  },
+  "S": {
+    "atomicnumber": 16,
+    "mass": 32.07,
+    "radius": 1.8
+  },
+  "Cl": {
+    "atomicnumber": 17,
+    "mass": 35.45,
+    "radius": 1.75
+  },
+  "Ar": {
+    "atomicnumber": 18,
+    "mass": 39.9,
+    "radius": 1.88
+  },
+  "K": {
+    "atomicnumber": 19,
+    "mass": 39.0983,
+    "radius": 2.75
+  },
+  "Ca": {
+    "atomicnumber": 20,
+    "mass": 40.08,
+    "radius": 2.31
+  },
+  "Sc": {
+    "atomicnumber": 21,
+    "mass": 44.95591,
+    "radius": 2.11
+  },
+  "Ti": {
+    "atomicnumber": 22,
+    "mass": 47.867,
+    "radius": 1.87
+  },
+  "V": {
+    "atomicnumber": 23,
+    "mass": 50.9415,
+    "radius": 1.79
+  },
+  "Cr": {
+    "atomicnumber": 24,
+    "mass": 51.996,
+    "radius": 1.89
+  },
+  "Mn": {
+    "atomicnumber": 25,
+    "mass": 54.93804,
+    "radius": 1.97
+  },
+  "Fe": {
+    "atomicnumber": 26,
+    "mass": 55.84,
+    "radius": 1.94
+  },
+  "Co": {
+    "atomicnumber": 27,
+    "mass": 58.93319,
+    "radius": 1.92
+  },
+  "Ni": {
+    "atomicnumber": 28,
+    "mass": 58.693,
+    "radius": 1.63
+  },
+  "Cu": {
+    "atomicnumber": 29,
+    "mass": 63.55,
+    "radius": 1.4
+  },
+  "Zn": {
+    "atomicnumber": 30,
+    "mass": 65.4,
+    "radius": 1.39
+  },
+  "Ga": {
+    "atomicnumber": 31,
+    "mass": 69.723,
+    "radius": 1.87
+  },
+  "Ge": {
+    "atomicnumber": 32,
+    "mass": 72.63,
+    "radius": 2.11
+  },
+  "As": {
+    "atomicnumber": 33,
+    "mass": 74.92159,
+    "radius": 1.85
+  },
+  "Se": {
+    "atomicnumber": 34,
+    "mass": 78.97,
+    "radius": 1.9
+  },
+  "Br": {
+    "atomicnumber": 35,
+    "mass": 79.9,
+    "radius": 1.83
+  },
+  "Kr": {
+    "atomicnumber": 36,
+    "mass": 83.8,
+    "radius": 2.02
+  },
+  "Rb": {
+    "atomicnumber": 37,
+    "mass": 85.468,
+    "radius": 3.03
+  },
+  "Sr": {
+    "atomicnumber": 38,
+    "mass": 87.62,
+    "radius": 2.49
+  },
+  "Y": {
+    "atomicnumber": 39,
+    "mass": 88.90584,
+    "radius": 2.19
+  },
+  "Zr": {
+    "atomicnumber": 40,
+    "mass": 91.22,
+    "radius": 1.86
+  },
+  "Nb": {
+    "atomicnumber": 41,
+    "mass": 92.90637,
+    "radius": 2.07
+  },
+  "Mo": {
+    "atomicnumber": 42,
+    "mass": 95.95,
+    "radius": 2.09
+  },
+  "Tc": {
+    "atomicnumber": 43,
+    "mass": 96.90636,
+    "radius": 2.09
+  },
+  "Ru": {
+    "atomicnumber": 44,
+    "mass": 101.1,
+    "radius": 2.07
+  },
+  "Rh": {
+    "atomicnumber": 45,
+    "mass": 102.9055,
+    "radius": 1.95
+  },
+  "Pd": {
+    "atomicnumber": 46,
+    "mass": 106.42,
+    "radius": 2.02
+  },
+  "Ag": {
+    "atomicnumber": 47,
+    "mass": 107.868,
+    "radius": 1.72
+  },
+  "Cd": {
+    "atomicnumber": 48,
+    "mass": 112.41,
+    "radius": 1.58
+  },
+  "In": {
+    "atomicnumber": 49,
+    "mass": 114.818,
+    "radius": 1.93
+  },
+  "Sn": {
+    "atomicnumber": 50,
+    "mass": 118.71,
+    "radius": 2.17
+  },
+  "Sb": {
+    "atomicnumber": 51,
+    "mass": 121.76,
+    "radius": 2.06
+  },
+  "Te": {
+    "atomicnumber": 52,
+    "mass": 127.6,
+    "radius": 2.06
+  },
+  "I": {
+    "atomicnumber": 53,
+    "mass": 126.9045,
+    "radius": 1.98
+  },
+  "Xe": {
+    "atomicnumber": 54,
+    "mass": 131.29,
+    "radius": 2.16
+  },
+  "Cs": {
+    "atomicnumber": 55,
+    "mass": 132.905452,
+    "radius": 3.43
+  },
+  "Ba": {
+    "atomicnumber": 56,
+    "mass": 137.33,
+    "radius": 2.68
+  },
+  "La": {
+    "atomicnumber": 57,
+    "mass": 138.9055,
+    "radius": 2.4
+  },
+  "Ce": {
+    "atomicnumber": 58,
+    "mass": 140.116,
+    "radius": 2.35
+  },
+  "Pr": {
+    "atomicnumber": 59,
+    "mass": 140.90766,
+    "radius": 2.39
+  },
+  "Nd": {
+    "atomicnumber": 60,
+    "mass": 144.24,
+    "radius": 2.29
+  },
+  "Pm": {
+    "atomicnumber": 61,
+    "mass": 144.91276,
+    "radius": 2.36
+  },
+  "Sm": {
+    "atomicnumber": 62,
+    "mass": 150.4,
+    "radius": 2.29
+  },
+  "Eu": {
+    "atomicnumber": 63,
+    "mass": 151.964,
+    "radius": 2.33
+  },
+  "Gd": {
+    "atomicnumber": 64,
+    "mass": 157.25,
+    "radius": 2.37
+  },
+  "Tb": {
+    "atomicnumber": 65,
+    "mass": 158.92535,
+    "radius": 2.21
+  },
+  "Dy": {
+    "atomicnumber": 66,
+    "mass": 162.5,
+    "radius": 2.29
+  },
+  "Ho": {
+    "atomicnumber": 67,
+    "mass": 164.93033,
+    "radius": 2.16
+  },
+  "Er": {
+    "atomicnumber": 68,
+    "mass": 167.26,
+    "radius": 2.35
+  },
+  "Tm": {
+    "atomicnumber": 69,
+    "mass": 168.93422,
+    "radius": 2.27
+  },
+  "Yb": {
+    "atomicnumber": 70,
+    "mass": 173.05,
+    "radius": 2.42
+  },
+  "Lu": {
+    "atomicnumber": 71,
+    "mass": 174.9667,
+    "radius": 2.21
+  },
+  "Hf": {
+    "atomicnumber": 72,
+    "mass": 178.49,
+    "radius": 2.12
+  },
+  "Ta": {
+    "atomicnumber": 73,
+    "mass": 180.9479,
+    "radius": 2.17
+  },
+  "W": {
+    "atomicnumber": 74,
+    "mass": 183.84,
+    "radius": 2.1
+  },
+  "Re": {
+    "atomicnumber": 75,
+    "mass": 186.207,
+    "radius": 2.17
+  },
+  "Os": {
+    "atomicnumber": 76,
+    "mass": 190.2,
+    "radius": 2.16
+  },
+  "Ir": {
+    "atomicnumber": 77,
+    "mass": 192.22,
+    "radius": 2.02
+  },
+  "Pt": {
+    "atomicnumber": 78,
+    "mass": 195.08,
+    "radius": 2.09
+  },
+  "Au": {
+    "atomicnumber": 79,
+    "mass": 196.96657,
+    "radius": 1.66
+  },
+  "Hg": {
+    "atomicnumber": 80,
+    "mass": 200.59,
+    "radius": 2.09
+  },
+  "Tl": {
+    "atomicnumber": 81,
+    "mass": 204.383,
+    "radius": 1.96
+  },
+  "Pb": {
+    "atomicnumber": 82,
+    "mass": 207.0,
+    "radius": 2.02
+  },
+  "Bi": {
+    "atomicnumber": 83,
+    "mass": 208.9804,
+    "radius": 2.07
+  },
+  "Po": {
+    "atomicnumber": 84,
+    "mass": 208.98243,
+    "radius": 1.97
+  },
+  "At": {
+    "atomicnumber": 85,
+    "mass": 209.98715,
+    "radius": 2.02
+  },
+  "Rn": {
+    "atomicnumber": 86,
+    "mass": 222.01758,
+    "radius": 2.2
+  },
+  "Fr": {
+    "atomicnumber": 87,
+    "mass": 223.01973,
+    "radius": 3.48
+  },
+  "Ra": {
+    "atomicnumber": 88,
+    "mass": 226.02541,
+    "radius": 2.83
+  },
+  "Ac": {
+    "atomicnumber": 89,
+    "mass": 227.02775,
+    "radius": 2.6
+  },
+  "Th": {
+    "atomicnumber": 90,
+    "mass": 232.038,
+    "radius": 2.37
+  },
+  "Pa": {
+    "atomicnumber": 91,
+    "mass": 231.03588,
+    "radius": 2.43
+  },
+  "U": {
+    "atomicnumber": 92,
+    "mass": 238.0289,
+    "radius": 2.4
+  },
+  "Np": {
+    "atomicnumber": 93,
+    "mass": 237.048172,
+    "radius": 2.21
+  },
+  "Pu": {
+    "atomicnumber": 94,
+    "mass": 244.0642,
+    "radius": 2.43
+  },
+  "Am": {
+    "atomicnumber": 95,
+    "mass": 243.06138,
+    "radius": 2.44
+  },
+  "Cm": {
+    "atomicnumber": 96,
+    "mass": 247.07035,
+    "radius": 2.45
+  },
+  "Bk": {
+    "atomicnumber": 97,
+    "mass": 247.07031,
+    "radius": 2.44
+  },
+  "Cf": {
+    "atomicnumber": 98,
+    "mass": 251.07959,
+    "radius": 2.45
+  },
+  "Es": {
+    "atomicnumber": 99,
+    "mass": 252.083,
+    "radius": 2.45
+  },
+  "Fm": {
+    "atomicnumber": 100,
+    "mass": 257.09511,
+    "radius": 0.0
+  },
+  "Md": {
+    "atomicnumber": 101,
+    "mass": 258.09843,
+    "radius": 0.0
+  },
+  "No": {
+    "atomicnumber": 102,
+    "mass": 259.101,
+    "radius": 0.0
+  },
+  "Lr": {
+    "atomicnumber": 103,
+    "mass": 266.12,
+    "radius": 0.0
+  },
+  "Rf": {
+    "atomicnumber": 104,
+    "mass": 267.122,
+    "radius": 0.0
+  },
+  "Db": {
+    "atomicnumber": 105,
+    "mass": 268.126,
+    "radius": 0.0
+  },
+  "Sg": {
+    "atomicnumber": 106,
+    "mass": 269.128,
+    "radius": 0.0
+  },
+  "Bh": {
+    "atomicnumber": 107,
+    "mass": 270.133,
+    "radius": 0.0
+  },
+  "Hs": {
+    "atomicnumber": 108,
+    "mass": 269.1336,
+    "radius": 0.0
+  },
+  "Mt": {
+    "atomicnumber": 109,
+    "mass": 277.154,
+    "radius": 0.0
+  },
+  "Ds": {
+    "atomicnumber": 110,
+    "mass": 282.166,
+    "radius": 0.0
+  },
+  "Rg": {
+    "atomicnumber": 111,
+    "mass": 282.169,
+    "radius": 0.0
+  },
+  "Cn": {
+    "atomicnumber": 112,
+    "mass": 286.179,
+    "radius": 0.0
+  },
+  "Nh": {
+    "atomicnumber": 113,
+    "mass": 286.182,
+    "radius": 0.0
+  },
+  "Fl": {
+    "atomicnumber": 114,
+    "mass": 290.192,
+    "radius": 0.0
+  },
+  "Mc": {
+    "atomicnumber": 115,
+    "mass": 290.196,
+    "radius": 0.0
+  },
+  "Lv": {
+    "atomicnumber": 116,
+    "mass": 293.205,
+    "radius": 0.0
+  },
+  "Ts": {
+    "atomicnumber": 117,
+    "mass": 294.211,
+    "radius": 0.0
+  },
+  "Og": {
+    "atomicnumber": 118,
+    "mass": 295.216,
+    "radius": 0.0
+  }
+}

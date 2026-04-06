@@ -69,7 +69,8 @@ where = ["."]
 # Ref https://setuptools.pypa.io/en/latest/userguide/datafiles.html#package-data
 [tool.setuptools.package-data]
 molscene = [
-    "py.typed"
+    "py.typed",
+    "data/*.json",
 ]
 
 [tool.versioningit]

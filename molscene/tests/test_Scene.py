@@ -148,7 +148,7 @@ def test_residue_key_no_collision():
         'chain': ['A', 'B'],
         'resid': [11, 1],
         'fragment': [1, 11],
-        'iCode': ['', ''],
+        'icode': ['', ''],
     })
     s = Scene(data)
     # fragment=1 resid=11 and fragment=11 resid=1 must get different residue indices
@@ -157,19 +157,148 @@ def test_residue_key_no_collision():
 
 def test_compute_mass(pdbfile):
     s = Scene.from_pdb(pdbfile)
-    s_mass = s.compute_mass()
-    assert 'mass' in s_mass.columns
-    # Original should not be modified
-    assert 'mass' not in s.columns
+    # mass is now auto-populated during construction
+    assert 'mass' in s.columns
     # Check known element masses for a few atoms
     # Atom 0: element N -> 14.007
-    assert s_mass.loc[0, 'mass'] == pytest.approx(14.007)
+    assert s.loc[0, 'mass'] == pytest.approx(14.007)
     # Atom 500: element C -> 12.011
-    assert s_mass.loc[500, 'mass'] == pytest.approx(12.011)
-    # Atom 1576: element S -> 32.06
-    assert s_mass.loc[1576, 'mass'] == pytest.approx(32.06)
+    assert s.loc[500, 'mass'] == pytest.approx(12.011)
+    # Atom 1576: element S -> 32.07
+    assert s.loc[1576, 'mass'] == pytest.approx(32.07)
     # All masses should be > 0 for real atoms
-    assert (s_mass['mass'] > 0).all()
+    assert (s['mass'] > 0).all()
+    # compute_mass still works (returns copy, no-op if already present)
+    s_mass = s.compute_mass()
+    assert 'mass' in s_mass.columns
+
+
+# --- Tests for icode rename ---
+
+def test_icode_column_pdb(pdbfile):
+    """iCode was renamed to icode (lowercase)."""
+    s = Scene.from_pdb(pdbfile)
+    assert 'icode' in s.columns
+    assert 'iCode' not in s.columns
+    # All icode values for 1zir should be empty strings
+    assert (s['icode'] == '').all()
+
+
+def test_icode_column_cif(ciffile):
+    s = Scene.from_cif(ciffile)
+    assert 'icode' in s.columns
+    assert 'iCode' not in s.columns
+
+
+def test_icode_default_on_bare_scene():
+    """Bare Scene (from coords only) should get icode, not iCode."""
+    s = Scene([[0, 0, 0]])
+    assert 'icode' in s.columns
+    assert 'iCode' not in s.columns
+
+
+# --- Tests for segment column ---
+
+def test_segment_column_pdb(pdbfile):
+    """PDB segment comes from columns 73-76 (usually blank for most PDBs)."""
+    s = Scene.from_pdb(pdbfile)
+    assert 'segment' in s.columns
+    # 1zir.pdb typically has blank segment columns
+    assert s['segment'].dtype == object
+
+
+def test_segment_column_cif(ciffile):
+    """CIF segment should be derived from label_entity_id."""
+    s = Scene.from_cif(ciffile)
+    assert 'segment' in s.columns
+    # 1zir.cif has label_entity_id values (typically "1", "2", etc.)
+    assert len(s['segment'].unique()) > 0
+    # Should not contain empty strings since label_entity_id is present
+    assert not (s['segment'] == '').all()
+
+
+def test_segment_column_cif_matches_entity_id(ciffile):
+    """CIF segment values should match label_entity_id when present."""
+    s = Scene.from_cif(ciffile)
+    if 'label_entity_id' in s.columns:
+        assert (s['segment'] == s['label_entity_id']).all()
+
+
+# --- Tests for atomicnumber column ---
+
+def test_atomicnumber_column_pdb(pdbfile):
+    s = Scene.from_pdb(pdbfile)
+    assert 'atomicnumber' in s.columns
+    # N -> 7, C -> 6, O -> 8, S -> 16
+    assert s.loc[0, 'atomicnumber'] == 7   # N
+    assert s.loc[1, 'atomicnumber'] == 6   # C (CA)
+    assert s.loc[3, 'atomicnumber'] == 8   # O
+    assert s.loc[1576, 'atomicnumber'] == 16  # S (SD in MET)
+    assert s['atomicnumber'].dtype == int
+
+
+def test_atomicnumber_column_cif(ciffile):
+    s = Scene.from_cif(ciffile)
+    assert 'atomicnumber' in s.columns
+    assert s.loc[0, 'atomicnumber'] == 7   # N
+
+
+# --- Tests for radius column ---
+
+def test_radius_column_pdb(pdbfile):
+    s = Scene.from_pdb(pdbfile)
+    assert 'radius' in s.columns
+    # VdW radii: N -> 1.55, C -> 1.70, O -> 1.52, S -> 1.80
+    assert s.loc[0, 'radius'] == pytest.approx(1.55)   # N
+    assert s.loc[1, 'radius'] == pytest.approx(1.70)   # C
+    assert s.loc[3, 'radius'] == pytest.approx(1.52)   # O
+    assert s.loc[1576, 'radius'] == pytest.approx(1.80) # S
+    assert (s['radius'] > 0).all()
+
+
+def test_radius_column_cif(ciffile):
+    s = Scene.from_cif(ciffile)
+    assert 'radius' in s.columns
+    assert s.loc[0, 'radius'] == pytest.approx(1.55)   # N
+
+
+# --- Tests for type column ---
+
+def test_type_column_pdb(pdbfile):
+    s = Scene.from_pdb(pdbfile)
+    assert 'type' in s.columns
+    # type should equal element for standard atoms
+    assert s.loc[0, 'type'] == 'N'
+    assert s.loc[1, 'type'] == 'C'
+    assert (s['type'] == s['element']).all()
+
+
+def test_type_column_cif(ciffile):
+    s = Scene.from_cif(ciffile)
+    assert 'type' in s.columns
+    assert (s['type'] == s['element']).all()
+
+
+# --- Tests for element-derived columns on all structures ---
+
+@pytest.mark.parametrize("structure", ['1r70', '1zbl', '1zir'])
+@pytest.mark.parametrize("fmt", ['pdb', 'cif'])
+def test_element_derived_columns_present(structure, fmt):
+    """All structures should have mass, atomicnumber, radius, type columns."""
+    path = Path(f'molscene/data/{structure}.{fmt}')
+    if not path.exists():
+        pytest.skip(f'{path} not found')
+    if fmt == 'pdb':
+        s = Scene.from_pdb(path)
+    else:
+        s = Scene.from_cif(path)
+    for col in ['mass', 'atomicnumber', 'radius', 'type']:
+        assert col in s.columns, f"Missing column '{col}' in {path}"
+    # mass and radius should be > 0 for all atoms with known elements
+    known = s['element'].isin(['C', 'N', 'O', 'S', 'H', 'P', 'Fe', 'Zn', 'Ca', 'Mg', 'Na', 'Cl'])
+    assert (s.loc[known, 'mass'] > 0).all()
+    assert (s.loc[known, 'radius'] > 0).all()
+    assert (s.loc[known, 'atomicnumber'] > 0).all()
 
 
 def test_compute_secondary_structure(ciffile):

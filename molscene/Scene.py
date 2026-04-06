@@ -13,7 +13,7 @@ from scipy.spatial import cKDTree, distance
 import logging
 from . import utils
 from .selection.transformer import PandasTransformer
-from .data.element_masses import _element_masses
+from .data.element_info import element_info
 
 __author__ = 'Carlos Bueno'
 
@@ -125,7 +125,7 @@ class Scene(pandas.DataFrame):
                 'resname': 'Residue name',
                 'chain': 'Chain identifier',
                 'resid': 'Residue sequence number',
-                'iCode': 'Code for insertion of residues',
+                'icode': 'Code for insertion of residues',
                 'x': 'Orthogonal coordinates for X in Angstroms',
                 'y': 'Orthogonal coordinates for Y in Angstroms',
                 'z': 'Orthogonal coordinates for Z in Angstroms',
@@ -162,8 +162,8 @@ class Scene(pandas.DataFrame):
             self['chain'] = ['A'] * len(self)
         if 'resid' not in self.columns:
             self['resid'] = [1] * len(self)
-        if 'iCode' not in self.columns:
-            self['iCode'] = [''] * len(self)
+        if 'icode' not in self.columns:
+            self['icode'] = [''] * len(self)
         if 'altloc' not in self.columns:
             self['altloc'] = [''] * len(self)
         if 'model' not in self.columns:
@@ -178,6 +178,16 @@ class Scene(pandas.DataFrame):
             self['beta'] = [1.0] * len(self)
         if 'resname' not in self.columns:
             self['resname'] = [''] * len(self)
+
+        # Element-derived columns
+        if 'mass' not in self.columns:
+            self['mass'] = self['element'].map(element_info.mass).fillna(0.0)
+        if 'atomicnumber' not in self.columns:
+            self['atomicnumber'] = self['element'].map(element_info.atomicnumber).fillna(0).astype(int)
+        if 'radius' not in self.columns:
+            self['radius'] = self['element'].map(element_info.radius).fillna(0.0)
+        if 'type' not in self.columns:
+            self['type'] = self['element']
         
         # Create an integer index for the chains
         if 'fragment' not in self.columns:
@@ -190,7 +200,7 @@ class Scene(pandas.DataFrame):
             residue_keys = (
                 self['fragment'].astype(str) + '_' +
                 self['resid'].astype(str) + '_' +
-                self['iCode'].astype(str)
+                self['icode'].astype(str)
             )
 
             # Get unique residue keys and map to integers
@@ -212,7 +222,7 @@ class Scene(pandas.DataFrame):
     def compute_mass(self):
         out = self.copy()
         if 'mass' not in out.columns:
-            out['mass'] = out['element'].map(_element_masses).fillna(0)
+            out['mass'] = out['element'].map(element_info.mass).fillna(0)
         else:
             Warning("Mass column already exists, skipping.")
         return out
@@ -417,14 +427,15 @@ class Scene(pandas.DataFrame):
                      resname=line[17:20].strip(),
                      chain=line[21:22].strip(),
                      resid=line[22:26],
-                     iCode=line[26:27].strip(),
+                     icode=line[26:27].strip(),
                      x=line[30:38],
                      y=line[38:46],
                      z=line[46:54],
                      occupancy=line[54:60].strip(),
                      beta=line[60:66].strip(),
                      element=line[76:78].strip(),
-                     charge=line[78:80].strip())
+                     charge=line[78:80].strip(),
+                     segment=line[72:76].strip() if len(line) > 72 else '')
             return l
 
         with open(file, 'r') as pdb:
@@ -450,7 +461,7 @@ class Scene(pandas.DataFrame):
                                  resname=str(line[12:15]).strip(),
                                  chain=str(line[16:17]).strip(),
                                  resid=int(line[18:22]),
-                                 iCode=str(line[22:23]).strip(),
+                                 icode=str(line[22:23]).strip(),
                                  stdRes=str(line[24:27]).strip(),
                                  comment=str(line[29:70]).strip())
                         mod_lines += [m]
@@ -458,9 +469,9 @@ class Scene(pandas.DataFrame):
                         model_number = int(line[10:14])
         pdb_atoms = pandas.DataFrame(lines)
         pdb_atoms = pdb_atoms[['recname', 'serial', 'name', 'altloc',
-                               'resname', 'chain', 'resid', 'iCode',
+                               'resname', 'chain', 'resid', 'icode',
                                'x', 'y', 'z', 'occupancy', 'beta',
-                               'element', 'charge']]
+                               'element', 'charge', 'segment']]
         
         # Apply type conversions and set default values
         pdb_atoms['serial'] = pandas.to_numeric(pdb_atoms['serial'], errors='coerce').fillna(0).astype(int)
@@ -506,7 +517,7 @@ class Scene(pandas.DataFrame):
                            'label_comp_id': 'resname',
                            'label_asym_id': 'chain',
                            'auth_seq_id': 'resid',
-                           'pdbx_PDB_ins_code': 'iCode',
+                           'pdbx_PDB_ins_code': 'icode',
                            'Cartn_x': 'x',
                            'Cartn_y': 'y',
                            'Cartn_z': 'z',
@@ -537,6 +548,12 @@ class Scene(pandas.DataFrame):
             cif_atoms['charge'] = pandas.to_numeric(cif_atoms['charge'], errors='coerce').fillna(0.0)
         else:
             cif_atoms['charge'] = 0.0
+
+        # Map label_entity_id to segment if available
+        if 'label_entity_id' in cif_atoms.columns:
+            cif_atoms['segment'] = cif_atoms['label_entity_id']
+        else:
+            cif_atoms['segment'] = ''
                 
         return cls(cif_atoms, **kwargs)
 
@@ -578,7 +595,7 @@ class Scene(pandas.DataFrame):
         """ Parses a pdb in the openmm format and outputs a table that contains all the information
         on a pdb file """
         cols = ['recname', 'serial', 'name', 'altloc',
-                'resname', 'chain', 'resid', 'iCode',
+                'resname', 'chain', 'resid', 'icode',
                 'x', 'y', 'z', 'occupancy', 'beta',
                 'element', 'charge']
         data = []
@@ -603,7 +620,7 @@ class Scene(pandas.DataFrame):
         """ Parses a pdb in the openmm format and outputs a table that contains all the information
         on a pdb file """
         cols = ['recname', 'serial', 'name', 'altloc',
-                'resname', 'chain', 'resid', 'iCode',
+                'resname', 'chain', 'resid', 'icode',
                 'x', 'y', 'z', 'occupancy', 'beta',
                 'element', 'charge']
         data = []
@@ -676,7 +693,7 @@ class Scene(pandas.DataFrame):
         pdb_table['resname'] = 'R' if 'resname' not in pdb_table else pdb_table['resname']
         pdb_table['chain'] = 'C' if 'chain' not in pdb_table else pdb_table['chain']
         pdb_table['resid'] = 1 if 'resid' not in pdb_table else pdb_table['resid']
-        pdb_table['iCode'] = '' if 'iCode' not in pdb_table else pdb_table['iCode']
+        pdb_table['icode'] = '' if 'icode' not in pdb_table else pdb_table['icode']
         assert 'x' in pdb_table.columns, 'Coordinate x not in particle definition'
         assert 'y' in pdb_table.columns, 'Coordinate x not in particle definition'
         assert 'z' in pdb_table.columns, 'Coordinate x not in particle definition'
@@ -756,7 +773,7 @@ class Scene(pandas.DataFrame):
         pdbx_table['chain'] = 'C' if 'chain' not in pdbx_table else pdbx_table['chain']
         pdbx_table['resid'] = 1 if 'resid' not in pdbx_table else pdbx_table['resid']
         pdbx_table['resIC'] = 1 if 'resIC' not in pdbx_table else pdbx_table['resIC']
-        pdbx_table['iCode'] = '' if 'iCode' not in pdbx_table else pdbx_table['iCode']
+        pdbx_table['icode'] = '' if 'icode' not in pdbx_table else pdbx_table['icode']
         assert 'x' in pdbx_table.columns, 'Coordinate x not in particle definition'
         assert 'y' in pdbx_table.columns, 'Coordinate x not in particle definition'
         assert 'z' in pdbx_table.columns, 'Coordinate x not in particle definition'
@@ -772,7 +789,7 @@ class Scene(pandas.DataFrame):
             pdbx_table[col] = pandas.to_numeric(pdbx_table[col], errors='coerce').fillna(0.0)
             
         #If the column is a string convert and empty string to a dot
-        for col in ['name', 'altloc', 'resname', 'chain', 'iCode', 'element']:
+        for col in ['name', 'altloc', 'resname', 'chain', 'icode', 'element']:
             pdbx_table[col] = pdbx_table[col].str.strip().replace('', '.')
 
         lines = ""
@@ -821,8 +838,8 @@ class Scene(pandas.DataFrame):
                 return val
 
         for col in ['serial',
-                    'name', 'resname', 'chain', 'resid', 'iCode',
-                    'name', 'resname', 'chain', 'resid','iCode',
+                    'name', 'resname', 'chain', 'resid', 'icode',
+                    'name', 'resname', 'chain', 'resid', 'icode', #duplicated for auth vs label
                     'x', 'y', 'z',
                     'occupancy', 'beta',
                     'element', 'charge', 'model']:
