@@ -29,10 +29,10 @@ _DNA_residues = {'DA': 'A', 'DC': 'C', 'DG': 'G', 'DT': 'T'}
 
 _RNA_residues = {'A': 'A', 'C': 'C', 'G': 'G', 'U': 'U'}
 
-_cif_tokenizer = re.compile(r"""'[^']*'      |  # single-quoted
-                                "[^"]*"     |  # double-quoted
-                                \#[^\n]*    |  # comment
-                                [^\s'"#]+      # unquoted
+_cif_tokenizer = re.compile(r"""'([^']*)'    |  # single-quoted → group 1
+                                "([^"]*)"    |  # double-quoted → group 2
+                                \#[^\n]*     |  # comment (no group)
+                                ([^\s'"#]+)     # unquoted → group 3
                             """, re.VERBOSE)
 
 def _read_cif_category(file_path, category):
@@ -71,11 +71,14 @@ def _read_cif_category(file_path, category):
                 in_section = True
 
             elif in_section:
-                data.append([
-                    token.strip("'\"")
-                    for token in _cif_tokenizer.findall(line)
-                    if not token.startswith('#')
-                ])
+                tokens = []
+                for m in _cif_tokenizer.finditer(line):
+                    sq, dq, word = m.group(1), m.group(2), m.group(3)
+                    val = sq if sq is not None else (dq if dq is not None else word)
+                    if val is not None:
+                        tokens.append(val)
+                if tokens:
+                    data.append(tokens)
 
     return pandas.DataFrame(data, columns=header)
 

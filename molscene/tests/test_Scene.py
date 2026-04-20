@@ -78,6 +78,12 @@ def test_from_cif(ciffile):
     assert atom['altloc'] == 'G'
 
 
+def test_cif_quoted_atom_names_preserved():
+    """Atom names like O5' must survive CIF double-quoting (e.g. "O5'")."""
+    s = Scene.from_cif(Path('molscene/data/1zbl.cif'))
+    assert "O5'" in s['name'].values, "O5' was mangled during CIF parsing"
+
+
 def test_cif_pdb_resid_agreement(pdbfile, ciffile):
     # CIF resid (now auth_seq_id) should match PDB resid for the same atom
     pdb = Scene.from_pdb(pdbfile)
