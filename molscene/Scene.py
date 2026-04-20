@@ -739,26 +739,66 @@ class Scene(pandas.DataFrame):
                            'pdbx_PDB_model_num': 'model'}
 
         cif_atoms = cif_atoms.rename(_cif_pdb_rename, axis=1)
-        for col in cif_atoms.columns:
-            try:
-                cif_atoms[col] = cif_atoms[col].astype(float)
-                if ((cif_atoms[col].astype(int) - cif_atoms[col]) ** 2).sum() == 0:
-                    cif_atoms[col] = cif_atoms[col].astype(int)
-                continue
-            except ValueError:
-                pass
 
-        cif_atoms['serial'] = pandas.to_numeric(cif_atoms['serial'], errors='coerce').fillna(0).astype(int)
-        cif_atoms['resid'] = pandas.to_numeric(cif_atoms['resid'], errors='coerce').fillna(0).astype(int)
-        cif_atoms['x'] = pandas.to_numeric(cif_atoms['x'], errors='coerce').fillna(0.0)
-        cif_atoms['y'] = pandas.to_numeric(cif_atoms['y'], errors='coerce').fillna(0.0)
-        cif_atoms['z'] = pandas.to_numeric(cif_atoms['z'], errors='coerce').fillna(0.0)
-        cif_atoms['occupancy'] = pandas.to_numeric(cif_atoms['occupancy'], errors='coerce').fillna(1.0)
-        cif_atoms['beta'] = pandas.to_numeric(cif_atoms['beta'], errors='coerce').fillna(1.0)
-        if 'charge' in cif_atoms.columns:
-            cif_atoms['charge'] = pandas.to_numeric(cif_atoms['charge'], errors='coerce').fillna(0.0)
-        else:
-            cif_atoms['charge'] = 0.0
+        # CIF uses '.' and '?' for missing/unknown values; replace with NA
+        cif_atoms = cif_atoms.replace({'.': pandas.NA, '?': pandas.NA})
+
+        # Column type conversions based on the mmCIF dictionary
+        # (https://mmcif.wwpdb.org/dictionaries/mmcif_pdbx_v50.dic/Categories/atom_site.html)
+        # All atom_site columns are listed below (using renamed names where applicable).
+        #
+        # int columns: {renamed_col: default_value}
+        #   id (serial)              — code/char in spec, always integral in practice
+        #   auth_seq_id (resid)      — code/char in spec, always integral in practice
+        #   pdbx_formal_charge (charge) — int, default 0
+        #   pdbx_PDB_model_num (model) — int, default 1
+        _int_cols = {'serial': 0, 'resid': 0, 'charge': 0, 'model': 1}
+        # float columns: {renamed_col: default_value}
+        #   Cartn_x/y/z (x/y/z)     — float
+        #   occupancy                — float, default 1.0
+        #   B_iso_or_equiv (beta)    — float
+        _float_cols = {'x': 0.0, 'y': 0.0, 'z': 0.0,
+                       'occupancy': 1.0, 'beta': 0.0}
+        # nullable int columns: int per spec but legitimately '.' for some records
+        #   label_seq_id             — int, '.' for HETATM records
+        _nullable_int_cols = ['label_seq_id']
+        # str columns: {col: default_value} — NA replaced with default
+        #   label_alt_id (altloc)    — code/char, default ''
+        #   pdbx_PDB_ins_code (icode) — code/char, default ''
+        #   group_PDB                — ucode/char ('ATOM' or 'HETATM')
+        #   label_entity_id          — code/char
+        #   auth_comp_id             — code/char
+        #   auth_asym_id             — code/char
+        #   auth_atom_id             — code/char
+        # str columns that keep NA if absent (no default needed):
+        #   label_atom_id (name)     — atcode/char
+        #   label_comp_id (resname)  — ucode/char
+        #   label_asym_id (chain)    — code/char
+        #   type_symbol (element)    — code/char
+        _str_defaults = {'altloc': '', 'icode': '', 'group_PDB': '',
+                         'label_entity_id': '', 'auth_comp_id': '',
+                         'auth_asym_id': '', 'auth_atom_id': ''}
+
+        for col, default in _int_cols.items():
+            if col in cif_atoms.columns:
+                cif_atoms[col] = pandas.to_numeric(
+                    cif_atoms[col], errors='coerce').fillna(default).astype(int)
+            else:
+                cif_atoms[col] = default
+
+        for col, default in _float_cols.items():
+            if col in cif_atoms.columns:
+                cif_atoms[col] = pandas.to_numeric(
+                    cif_atoms[col], errors='coerce').fillna(default)
+
+        for col in _nullable_int_cols:
+            if col in cif_atoms.columns:
+                cif_atoms[col] = pandas.to_numeric(
+                    cif_atoms[col], errors='coerce').astype('Int64')
+
+        for col, default in _str_defaults.items():
+            if col in cif_atoms.columns:
+                cif_atoms[col] = cif_atoms[col].fillna(default)
 
         # CIF has no equivalent of PDB segment (cols 72-76). VMD leaves it empty
         # for CIF files, and label_entity_id is a different concept (entity grouping,
