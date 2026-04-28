@@ -179,6 +179,14 @@ def test_compute_mass(pdbfile):
     assert 'mass' in s_mass.columns
 
 
+def test_uppercase_element_symbol_maps_properties():
+    s = Scene(pd.DataFrame({'x': [0.0], 'y': [0.0], 'z': [0.0], 'element': ['MG']}))
+
+    assert s.loc[0, 'mass'] == pytest.approx(24.305)
+    assert s.loc[0, 'atomicnumber'] == 12
+    assert s.loc[0, 'radius'] == pytest.approx(1.73)
+
+
 # --- Tests for icode rename ---
 
 def test_icode_column_pdb(pdbfile):

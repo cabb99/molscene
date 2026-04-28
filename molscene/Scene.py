@@ -35,6 +35,12 @@ _cif_tokenizer = re.compile(r"""'([^']*)'    |  # single-quoted → group 1
                                 ([^\s'"#]+)     # unquoted → group 3
                             """, re.VERBOSE)
 
+
+def _canonicalize_element_symbol(symbol):
+    if isinstance(symbol, str) and symbol.isalpha() and symbol.isupper():
+        return symbol[0] + symbol[1:].lower()
+    return symbol
+
 def _read_cif_category(file_path, category):
     """
     Read a single loop category from a CIF file.
@@ -198,13 +204,15 @@ class Scene(pandas.DataFrame):
         if 'resname' not in self.columns:
             self['resname'] = [''] * len(self)
 
+        element_symbols = self['element'].map(_canonicalize_element_symbol)
+
         # Element-derived columns
         if 'mass' not in self.columns:
-            self['mass'] = self['element'].map(element_info.mass).fillna(0.0)
+            self['mass'] = element_symbols.map(element_info.mass).fillna(0.0)
         if 'atomicnumber' not in self.columns:
-            self['atomicnumber'] = self['element'].map(element_info.atomicnumber).fillna(0).astype(int)
+            self['atomicnumber'] = element_symbols.map(element_info.atomicnumber).fillna(0).astype(int)
         if 'radius' not in self.columns:
-            self['radius'] = self['element'].map(element_info.radius).fillna(0.0)
+            self['radius'] = element_symbols.map(element_info.radius).fillna(0.0)
         if 'type' not in self.columns:
             self['type'] = self['element']
         
@@ -241,7 +249,7 @@ class Scene(pandas.DataFrame):
     def compute_mass(self):
         out = self.copy()
         if 'mass' not in out.columns:
-            out['mass'] = out['element'].map(element_info.mass).fillna(0)
+            out['mass'] = out['element'].map(_canonicalize_element_symbol).map(element_info.mass).fillna(0)
         else:
             Warning("Mass column already exists, skipping.")
         return out
