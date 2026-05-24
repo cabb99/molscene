@@ -12,8 +12,29 @@ import re
 from scipy.spatial import cKDTree, distance
 import logging
 from . import utils
-from .selection.transformer import PandasTransformer
 from .data.element_masses import _element_masses
+from .transformation import Transformation
+from .matching import as_matching as _as_matching
+
+
+_MOLSELECT_EVALUATOR = None
+
+
+def _molselect_evaluator():
+    """Return a lazily-built molselect evaluator (parser + builder + backend).
+
+    Constructed once per process because parser construction is non-trivial.
+    """
+    global _MOLSELECT_EVALUATOR
+    if _MOLSELECT_EVALUATOR is None:
+        from molselect.python.evaluator import Evaluator
+        from molselect.python.backends.pandas import PandasStructure
+        from molselect.python.parser import SelectionParser
+        from molselect.python.builder import ASTBuilder
+        parser = SelectionParser()
+        builder = ASTBuilder(parser)
+        _MOLSELECT_EVALUATOR = Evaluator(PandasStructure, parser=parser, builder=builder)
+    return _MOLSELECT_EVALUATOR
 
 __author__ = 'Carlos Bueno'
 
@@ -352,48 +373,46 @@ class Scene(pandas.DataFrame):
         frames = self.get_coordinate_frames()
         self.set_coordinates(frames[frame_index])
 
-    def select(self, selstr: str = "", macros: dict = None, **kwargs) -> "Scene":
+    def select(self, selstr: str = "", **kwargs) -> "Scene":
         """
         Atom selection.
 
-        Parameters
-        ----------
-        selstr : str
-            A VMD selection string.
-        macros : dict, optional
-            Mapping of @macro names to selection strings.
-        **kwargs : any
-            User variables (e.g. $var) passed into the selection.
+        Two ways to call:
+
+        * **Selection string** (preferred). Any non-empty ``selstr`` is
+          evaluated by `molselect <https://github.com/cabb99/molselect>`_,
+          giving access to the full VMD-style selection grammar
+          (booleans, ``within``, ``same residue as``, regex, etc.).
+          Example: ``scene.select("chain A and resid 1 to 100 and name CA")``.
+        * **Column-equality kwargs** (back-compat shortcut). When ``selstr``
+          is empty, each kwarg ``col=values`` keeps rows where ``self[col]``
+          is one of ``values``. ``altloc`` additionally allows the empty/`.`
+          placeholder.
+
+        Combine selstr and kwargs to and-merge their masks.
 
         Returns
         -------
         Scene
-            A new Scene containing only the selected atoms.
+            A new Scene containing only the selected atoms; metadata is
+            preserved.
         """
-        index = self.index
-        sel = pandas.Series([True] * len(index), index=index)
-        for key in kwargs:
-            if key == 'altloc':
-                sel &= (self['altloc'].isin(['', '.'] + kwargs['altloc']))
-            elif key == 'model':
-                sel &= (self['model'].isin(kwargs['model']))
+        sel = pandas.Series(True, index=self.index)
+
+        if selstr:
+            ev = _molselect_evaluator()
+            result = ev.parse(self, selstr)
+            # molselect returns a backend-wrapped sub-structure whose .df
+            # carries the original DataFrame index.
+            kept = result.df.index if hasattr(result, "df") else result
+            sel &= self.index.isin(kept)
+
+        for key, values in kwargs.items():
+            if key == "altloc":
+                sel &= self["altloc"].isin(list(values) + ["", "."])
             else:
-                sel &= (self[key].isin(kwargs[key]))
+                sel &= self[key].isin(values)
 
-        # Assert there are not repeated atoms
-        index = self[sel][['fragment', 'residue', 'name']]
-        if len(index.duplicated()) == 0:
-            print("Duplicated atoms found")
-            print(index[index.duplicated()])
-            self._meta['duplicated'] = True
-
-        # selector = VMDSelector(self, macros, **kwargs)
-        # mask = selector(selstr)
-        
-        # # Join the mask with the selection
-        # sel &= mask
-
-        # mask is a boolean Series over self.index
         return Scene(self.loc[sel].copy(), **self._meta)
 
 
@@ -1004,6 +1023,134 @@ class Scene(pandas.DataFrame):
         new = self.copy()
         new.set_coordinates(self.get_coordinates().dot(other))
         return new
+
+    def transform(self, transformation: "Transformation") -> "Scene":
+        """
+        Apply a :class:`Transformation` to the coordinates.
+
+        Multi-frame coordinate stacks (see :meth:`set_coordinate_frames`) are
+        transformed frame-wise.
+
+        Parameters
+        ----------
+        transformation : Transformation
+
+        Returns
+        -------
+        Scene
+            New scene with the transformation applied; metadata preserved.
+        """
+        if not isinstance(transformation, Transformation):
+            raise TypeError(
+                f"transform expects a Transformation, got {type(transformation).__name__}; "
+                "wrap raw matrices with Transformation.from_matrix(R, t)."
+            )
+
+        out = self.copy(deep=True)
+        if 'coordinate_frames' in self._meta:
+            frames = self.get_coordinate_frames()
+            new_frames = transformation.apply(frames)
+            out._meta['coordinate_frames'] = new_frames
+            out.set_coordinates(new_frames[0])
+        else:
+            coords = self.get_coordinates().to_numpy()
+            out.set_coordinates(transformation.apply(coords))
+        return out
+
+    def match(self, other: "Scene", match=None) -> Tuple["Scene", "Scene"]:
+        """
+        Pair atoms between two scenes using a :class:`Matching` strategy.
+
+        Parameters
+        ----------
+        other : Scene
+            The second scene to pair against.
+        match : Matching | str | tuple | callable | None, optional
+            Matching strategy. See :func:`molscene.matching.as_matching` for
+            accepted forms. ``None`` (default) uses :class:`OrderMatching`
+            which requires the two scenes to already have the same length and
+            row order.
+
+        Returns
+        -------
+        (Scene, Scene)
+            Two scenes of equal length whose rows correspond atom-for-atom.
+        """
+        return _as_matching(match).pair(self, other)
+
+    def compute_transformation(
+        self,
+        reference: "Scene",
+        match=None,
+    ) -> "Transformation":
+        """
+        Compute the rigid-body :class:`Transformation` that least-squares
+        superposes ``self`` onto ``reference``.
+
+        Subset fitting is done by composing :meth:`select` with this method:
+
+            T = scene.select("name CA").compute_transformation(
+                    ref.select("name CA"))
+            moved = scene.transform(T)
+
+        The returned :class:`Transformation` carries an ``rmsd`` attribute
+        holding the residual over the atoms used for the fit.
+
+        Parameters
+        ----------
+        reference : Scene
+        match : Matching | str | tuple | callable | None, optional
+            Strategy for pairing atoms between ``self`` and ``reference``.
+
+        Returns
+        -------
+        Transformation
+        """
+        mobile, target = self.match(reference, match=match)
+        P = mobile.get_coordinates().to_numpy()
+        Q = target.get_coordinates().to_numpy()
+        return Transformation.from_kabsch(P, Q)
+
+    def superpose(self, reference: "Scene", match=None) -> "Scene":
+        """
+        Return a copy of ``self`` rigid-body-aligned onto ``reference``.
+
+        Equivalent to ``self.transform(self.compute_transformation(reference,
+        match=match))``.
+        """
+        return self.transform(self.compute_transformation(reference, match=match))
+
+    def rmsd(
+        self,
+        other: "Scene",
+        match=None,
+        align: bool = False,
+    ) -> float:
+        """
+        Root-mean-square deviation between two scenes.
+
+        Parameters
+        ----------
+        other : Scene
+        match : Matching | str | tuple | callable | None, optional
+            Strategy for pairing atoms. ``None`` uses :class:`OrderMatching`.
+        align : bool, optional
+            If ``True``, return the RMSD after optimal Kabsch superposition;
+            otherwise return the positional RMSD as-is.
+
+        Returns
+        -------
+        float
+        """
+        mobile, target = self.match(other, match=match)
+        P = mobile.get_coordinates().to_numpy()
+        Q = target.get_coordinates().to_numpy()
+
+        if align:
+            return Transformation.from_kabsch(P, Q).rmsd
+
+        diff = P - Q
+        return float(np.sqrt(np.mean(np.einsum('ij,ij->i', diff, diff))))
 
     def distance_map(self, threshold=None) -> Union[np.ndarray, tuple]:
         """
