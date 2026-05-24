@@ -1057,6 +1057,75 @@ class Scene(pandas.DataFrame):
             out.set_coordinates(transformation.apply(coords))
         return out
 
+    def morph_segment(
+        self,
+        chain: str,
+        resid_range,
+        t_start: "Transformation",
+        t_end: "Transformation",
+        method: str = "sclerp",
+    ) -> "Scene":
+        """
+        Per-residue rigid blend between two anchor transformations.
+
+        Each residue in ``chain`` whose ``resid`` is in ``resid_range`` is
+        moved rigidly by an interpolated transformation
+        ``T_i = t_start.interpolate(t_end, α_i, method=method)``, where
+        ``α_i = i / (N − 1)`` runs from 0 at the first listed residue to 1 at
+        the last. Atoms outside ``chain`` / ``resid_range`` are untouched.
+
+        This is the per-residue local-frame morph used by the CaMKII linker
+        builder: ``method='sclerp'`` (default) sweeps every residue along the
+        common screw axis between the two anchors, propagating the motion
+        smoothly across an intervening flexible region. With ``method='slerp'``
+        the rotation and translation channels evolve independently.
+
+        Intra-residue geometry is preserved exactly (each residue moves as a
+        rigid body); inter-residue backbone bonds may stretch by a small
+        amount across the segment — acceptable for an initial model that
+        downstream MD/minimisation will relax.
+
+        Parameters
+        ----------
+        chain : str
+            Chain identifier; only atoms with ``chain == chain`` and ``resid``
+            in ``resid_range`` participate.
+        resid_range : iterable of int
+            Residues to morph, listed in the order they appear along the
+            segment (e.g. ``range(275, 341)``). Order determines ``α``.
+        t_start, t_end : Transformation
+            Anchor transformations at ``α = 0`` and ``α = 1`` respectively.
+        method : {'sclerp', 'slerp'}, optional
+            Interpolation mode forwarded to :meth:`Transformation.interpolate`.
+
+        Returns
+        -------
+        Scene
+            New scene with the segment's atoms repositioned; metadata
+            preserved.
+        """
+        if not isinstance(t_start, Transformation) or not isinstance(t_end, Transformation):
+            raise TypeError("t_start and t_end must be Transformation instances")
+
+        resids = list(resid_range)
+        if not resids:
+            return self.copy(deep=True)
+
+        out = self.copy(deep=True)
+        coords = out.get_coordinates().to_numpy()
+
+        n = len(resids)
+        for i, resid in enumerate(resids):
+            alpha = 0.0 if n == 1 else i / (n - 1)
+            T_i = t_start.interpolate(t_end, alpha, method=method)
+            mask = ((out['chain'] == chain) & (out['resid'] == resid)).to_numpy()
+            if not mask.any():
+                continue
+            coords[mask] = T_i.apply(coords[mask])
+
+        out.set_coordinates(coords)
+        return out
+
     def match(self, other: "Scene", match=None) -> Tuple["Scene", "Scene"]:
         """
         Pair atoms between two scenes using a :class:`Matching` strategy.
