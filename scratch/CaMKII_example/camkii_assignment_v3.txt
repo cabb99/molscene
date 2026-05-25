@@ -1,0 +1,77 @@
+# Candidate kinase poses (sorted by ascending distance to the hub centroid).
+# Open camkii_candidates_v3.pdb in your viewer; each candidate is on the listed chain.
+# To assign manually, fill out an assignment file with one line per
+# source kinase: "source_chain candidate_id". Lines starting with '#'
+# are ignored. There must be exactly 12 lines (one per source chain).
+
+# cand_id chain filament      pair   fit_RMSD  dist_to_hub
+#        0     0        0       Z,b       3.45       180.51
+#        1     1        0       a,c       3.44       168.32
+#        2     2        0       b,d       3.44       166.92
+#        3     3        0       c,e       2.06       126.13
+#        4     4        0       d,f       3.44       168.74
+#        5     5        0       e,g       1.78        83.97
+#        6     6        0       f,h       3.44       182.32
+#        7     7        0       g,i       3.45        99.98
+#        8     8        0       h,j       3.44       203.47
+#        9     9        0       i,k       3.45       145.04
+#       10     m        0       j,l       3.44       229.76
+#       11     n        1       M,O       3.45       203.80
+#       12     o        1       N,P       3.44       128.18
+#       13     p        1       O,Q       3.44       164.10
+#       14     q        1       P,R       3.44       116.18
+#       15     r        1       Q,S       3.44       130.60
+#       16     s        1       R,T       3.45       132.35
+#       17     t        1       S,U       3.44       114.24
+#       18     u        1       T,V       3.45       165.32
+#       19     v        1       U,W       3.44       126.92
+#       20     w        1       V,X       3.45       204.52
+#       21     x        1       W,Y       3.44       164.90
+
+# Source CaMKII chains (kinase residues 1-274 currently at):
+# chain  centroid_x centroid_y centroid_z
+#      A       80.42     163.83     -89.73
+#      B      -77.14     144.86     101.71
+#      C     -150.41      -5.95    -107.89
+#      D      124.34    -114.56     -98.97
+#      E      165.88      28.33     106.51
+#      F      -74.09    -142.39      89.03
+#      G      100.41    -134.33      95.44
+#      H     -155.20      -8.77      95.09
+#      I       97.03     150.29      95.71
+#      J      174.59      15.41    -100.53
+#      K      -90.56     143.42     -94.92
+#      L      -47.11    -146.48    -105.42
+
+# Example assignment file:
+# A  0
+# B  3
+# ...
+# L  21
+#          B
+#        / | \
+#      /   A   \
+#    /   /  \   \
+#   H---K    J---I
+#   |   |    |    |
+#   F---C    D---E
+#    \    \  /   /
+#      \   L   /
+#        \ | /
+#          G
+
+
+K 7
+A 5
+J 3
+B 6
+I 4
+E 2
+H 14
+F 16
+G 18
+C 15
+L 17
+D 19
+
+
