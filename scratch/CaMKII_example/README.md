@@ -112,7 +112,63 @@ provided v3 assignment, std went from 22.3 Å → 15.6 Å.
 movie, both the actin filaments and the kinases gradually rotate
 together, with the linkers ScLERP-morphing between them.
 
-### 4. Animation
+### 4. Symmetry enforcement
+
+Two independent flags re-pose the assembly to satisfy idealised symmetries.
+Each can be used alone or combined with the other (and with `--animate`).
+A four-line geometry printout of the filament pair runs on every
+invocation, before and after, so you can see how the descriptors change.
+
+**`--enforce-symmetry {parallel,antiparallel}`** — reposes filament 1 so
+it is the C2-image of filament 0 about the CaMKII hub COM:
+
+* `parallel` — C2 axis = filament 0's helical-axis direction. Filament 1
+  ends up pointing the same way as filament 0, on the opposite side of
+  the CaMKII; the radial reference is rotated by 180°.
+  → output `angle_deg ≈ 0°`, `axial_offset ≈ 0`, `twist ≈ 180°`.
+* `antiparallel` — C2 axis = `d̂₀ × n̂_⊥` (perpendicular to both the
+  helical axis and the perp-vector to the CaMKII COM). Filament 1 ends
+  up pointing the opposite way and mirrored across the CaMKII COM.
+  → output `angle_deg ≈ 180°`.
+
+This is a frame-alignment transform (not a literal 180° rotation of
+filament 1's current pose) — it physically moves filament 1 to the
+position the C2 symmetry says it should occupy. The kinases bound to
+filament 1 move with it; the linker morph absorbs the shift.
+
+Compatible with `--optimize-filaments`: if both are set, filament 0 is
+optimised and filament 1 is symmetrised.
+
+**`--enforce-camkii-symmetry {pointed,flat}`** — repositions the CaMKII
+hub: translates so the hub COM sits at the midpoint of the closest-
+approach segment between the two filament axes, then orients the
+dodecameric hexagon so
+
+* `pointed` — vertex AB direction ⊥ to filament 0's helical axis (a
+  vertex points perpendicular toward each filament).
+* `flat` — the HK ↔ DE diameter ‖ to filament 0's helical axis (a hexagon
+  diameter is along the filament length; equivalently, an edge faces
+  perpendicular to the filaments).
+
+Pointed and flat differ by a 30° rotation of the hexagon about its stack
+axis. Only the **hub residues** (`HUB_RANGE`) of all 12 CaMKII chains
+are transformed; the kinases stay bound to their candidate positions and
+the linker morph re-runs with `t_start = T_cam` so the hub-end of the
+linker tracks the moved hub.
+
+**The four canonical configurations** the user typically wants:
+
+```bash
+python script.py --assignment ASSIGN --enforce-symmetry parallel     --enforce-camkii-symmetry pointed
+python script.py --assignment ASSIGN --enforce-symmetry parallel     --enforce-camkii-symmetry flat
+python script.py --assignment ASSIGN --enforce-symmetry antiparallel --enforce-camkii-symmetry pointed
+python script.py --assignment ASSIGN --enforce-symmetry antiparallel --enforce-camkii-symmetry flat
+```
+
+Each writes its own `--output` PDB; add `--animate N` to also dump the
+corresponding morph movie.
+
+### 5. Animation
 
 Add `--animate N` to either mode to also write an N-frame multi-model PDB:
 
@@ -150,16 +206,29 @@ own helical axes.
    `Transformation` to KABT_kinase. Gives 11 candidates per filament, 22
    total.
 4. **Assign.** Either Hungarian on hub-distance ranking, or your manual file.
-5. **(Optional) Optimise filament rotation.** Rotate each filament around
-   its helical axis to minimise the sum of squared linker spans. Coarse
-   scan every degree, then Brent-refine.
-6. **Move kinases + morph linkers.** For each assigned source chain,
+5. **(Optional) Per-filament rotation.** Two mutually-compatible options:
+   * `--optimize-filaments`: rotate each filament about its helical axis
+     to minimise the sum of squared linker spans (coarse 1° scan +
+     Brent refinement).
+   * `--enforce-symmetry {parallel,antiparallel}`: replace filament 1's
+     pose with the C2-image of filament 0 (parallel or antiparallel,
+     respectively).
+   When both are set, filament 0 is optimised and filament 1 is symmetrised.
+6. **(Optional) `--enforce-camkii-symmetry {pointed,flat}`.** Build a
+   single rigid `Transformation` that translates the hub COM to the
+   filament midpoint and reorients the hexagonal dodecamer (vertex AB
+   perpendicular to the helical axis for `pointed`, HK↔DE diameter
+   parallel for `flat`). Applied to the hub residues only.
+7. **Move kinases + morph linkers.** For each assigned source chain,
    `compute_transformation()` puts the source kinase onto the candidate,
    `transform()` applies that to the kinase residues, and
-   `morph_segment(method='sclerp')` ScLERP-interpolates the linker between
-   the unchanged hub end (`identity`) and the moved kinase end (`T_kin` —
-   or `T_rot ∘ T_kin` if filament rotation was applied).
-7. **Write** the final PDB (and the movie if `--animate` was given).
+   `morph_segment(method='sclerp')` ScLERP-interpolates the linker.
+   The morph's `t_start` is identity (or the CaMKII symmetry transform
+   if `--enforce-camkii-symmetry` was given), the `t_end` is the
+   composed kinase transform.
+8. **Write** the final PDB (and the movie if `--animate` was given).
+   The four-line filament-pair geometry printout runs before and after
+   so you can see how the assembly's geometry changed.
 
 ## Notes / caveats
 
@@ -205,3 +274,66 @@ for c in [ch for ch in before['chain'].unique() if ch not in 'ABCDEFGHIJKL']:
 print('OK — hub and actins are immobile.')
 PY
 ```
+
+## Plan: Filament Geometry Report + `--enforce-symmetry`
+
+Add a geometry printout (runs always) and a `--enforce-symmetry` flag that couples filament 2 movement into a perfect fold filament arrangement, both for paralel actin filament, doing a 180 rotation around the COM of the CAMKII in the plane perpendicular to the helical axis, and an antiparallel actin filament, doing a 180 degree rotation around the COM of the CaMKII in the plane formed by the COM of the CaMKII and the helical axis of the filament.
+
+---
+
+### Phase 1 — Two new helper functions
+(inserted after `optimize_filament_rotation`, before `# Pipeline stages`)
+
+**`describe_filament_pair(merged, filaments) → geom`**
+Computes the 4 numbers you asked for:
+- **angle_deg** — angle between the two helical axis directions: $\arccos(\hat{d}_0 \cdot \hat{d}_1)$
+- **d_perp_A** — interfilament distance ⊥ to the helical axis: $|\,(p_1-p_0) - d_\text{axial}\,\hat{d}_0\,|$
+- **d_axial_A** — axial offset: $(p_1-p_0)\cdot\hat{d}_0$
+- **twist_deg** — rotation of filament 1 around the helix axis relative to filament 0; measured using the first monomer centroid projected ⊥ to the axis as a radial reference: $\text{atan2}((\hat{v}_0\times\hat{v}_1)\cdot\hat{d}_0,\; \hat{v}_0\cdot\hat{v}_1)$
+
+Returns a `geom` dict (`d0,p0,d1,p1,n_perp,v0,v1` + 4 scalars).
+
+**`build_symmetry_transform_filament1(geom, target_distance_A=240.0) → Transformation`**
+Uses a local-frame alignment:
+- Current frame $R_1 = [\hat{v}_1 \mid \hat{d}_1\times\hat{v}_1 \mid \hat{d}_1]$ at $p_1$
+- Target frame $R_{1,\text{tgt}} = [-\hat{v}_0 \mid \hat{d}_0\times(-\hat{v}_0) \mid \hat{d}_0]$ at $p_\text{tgt} = p_0 + D\,\hat{n}_\perp$
+
+($\hat{n}_\perp \perp \hat{d}_0$ → axial offset = 0 automatically; $-\hat{v}_0$ → 180° twist)
+
+$$R_\text{total} = R_{1,\text{tgt}}\, R_1^\top, \qquad t = p_\text{tgt} - R_\text{total}\,p_1$$
+
+** similarly for the other transformation
+
+---
+
+### Phase 3 — Two new CLI args in `parse_args()`
+
+- `--enforce-symmetry` (store_true)
+- `--sym-distance` (float, default `240.0`, in Å)
+
+
+---
+
+### Phase 3 — `main()` changes
+
+**3a.** Call `geom = describe_filament_pair(merged, filaments)` right after the hub centroid printout (runs on every invocation, including `--save-candidates`).
+
+**3b.** Replace the `filament_rotations = None; if args.optimize_filaments: ...` block with a unified loop over both filaments:
+- If `fi == 1` and `--enforce-symmetry`: use `build_symmetry_transform_filament1(geom, args.sym_distance)` as `T_fi`
+- Else if `--optimize-filaments`: run the existing scan/Brent optimisation, use `T_rot` as `T_fi`
+- Else: skip this filament
+
+After the loop: compose `chain_extra_rot` into `chain_transforms` (same logic as today). Set `filament_rotations = None` if nothing was added.
+
+This means:
+- `--optimize-filaments` alone → both filaments optimised (same as today)
+- `--enforce-symmetry` alone → filament 1 symmetrised, filament 0 untouched
+- Both → filament 0 optimised, filament 1 symmetrised
+
+---
+
+**Verification**
+1. `python script.py --save-candidates camkii_candidates_v4` — geometry printed, no crash
+2. `python script.py --assignment camkii_assignment.txt --enforce-symmetry` — T_sym applied, PDB written
+3. `python script.py --assignment camkii_assignment.txt --optimize-filaments --enforce-symmetry` — fil0 optimised, fil1 symmetrised
+4. VMD check: filament axes parallel, 240 Å apart

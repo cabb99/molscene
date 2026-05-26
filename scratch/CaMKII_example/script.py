@@ -74,6 +74,21 @@ HUB_RANGE = (401, 542)
 
 CAMKII_CHAINS = list("ABCDEFGHIJKL")
 
+# Hub topology — the dodecameric hub forms a hexagon with 6 vertex-pairs.
+# Chains stack face-to-face within each vertex. Faces and vertices are
+# listed in clockwise order so that adjacent vertices in the lists are
+# physically adjacent on the hexagon (AB ↔ IJ adjacent, AB ↔ GL opposite).
+HUB_FACE_FRONT = list("AJDLCK")
+HUB_FACE_BACK = list("BIEGFH")
+HUB_VERTEX_STACKS = [
+    ("A", "B"),  # vertex 0 ─ AB
+    ("I", "J"),  # vertex 1 ─ IJ (clockwise 60° from AB)
+    ("D", "E"),  # vertex 2 ─ DE
+    ("G", "L"),  # vertex 3 ─ GL (opposite to AB)
+    ("C", "F"),  # vertex 4 ─ CF
+    ("H", "K"),  # vertex 5 ─ HK
+]
+
 QIAN_KINASE = (1, 290)
 QIAN_ACTIN_RANGES = [
     (1944, 2318), (2319, 2693), (2694, 3068), (3069, 3443), (3444, 3818),
@@ -343,6 +358,336 @@ def optimize_filament_rotation(merged: ms.Scene, chain_transforms_for_fil,
 
 
 # ---------------------------------------------------------------------------
+# Symmetry: filament-pair geometry + symmetry transforms
+# ---------------------------------------------------------------------------
+
+def _camkii_com(merged: ms.Scene) -> np.ndarray:
+    """Centre of mass of the CaMKII *hub* (chains A–L, hub residues only).
+
+    Using the hub rather than the whole dodecamer keeps the reference stable
+    across the pipeline — the hub stays put while the kinases and linkers
+    move, so any frame-defining quantity anchored on the hub is consistent
+    between input and output scenes.
+    """
+    return merged[
+        merged["chain"].isin(CAMKII_CHAINS)
+        & merged["resid"].between(HUB_RANGE[0], HUB_RANGE[1])
+    ][["x", "y", "z"]].to_numpy().mean(axis=0)
+
+
+def _polarity_signed_axis(merged: ms.Scene, fil_chains, d_raw):
+    """SVD axis sign is arbitrary; flip ``d_raw`` so it points from the first
+    chain in ``fil_chains`` toward the last (i.e., follows the filament's
+    polarity, since :func:`order_along_axis` already sorted the chains)."""
+    c_first = chain_centroid(merged, fil_chains[0])
+    c_last = chain_centroid(merged, fil_chains[-1])
+    return d_raw if np.dot(d_raw, c_last - c_first) >= 0 else -d_raw
+
+
+def filament_pair_geometry(merged: ms.Scene, filaments):
+    """Describe the geometric relationship between the two filaments.
+
+    Axes are signed by filament polarity (centroid of first chain → centroid
+    of last chain) so that ``angle_deg`` is 0° when the two filaments point
+    the same way and 180° when they point opposite ways.
+
+    Returns a dict with vectors (``d0, d1, p0, p1, n_perp, v0, v1``) and four
+    scalar descriptors:
+
+    * ``angle_deg``  — angle between the two helical-axis directions.
+    * ``d_axial_A``  — axial offset of ``p1`` relative to ``p0`` along ``d̂₀``.
+    * ``d_perp_A``   — perpendicular (closest-approach) distance between the
+                       two helical axes.
+    * ``twist_deg``  — rotation of filament 1's first-monomer radial direction
+                       relative to filament 0's, measured around ``d̂₀``.
+    """
+    d0_raw, p0 = filament_helical_axis(merged, filaments[0])
+    d1_raw, p1 = filament_helical_axis(merged, filaments[1])
+    d0 = _polarity_signed_axis(merged, filaments[0], d0_raw)
+    d1 = _polarity_signed_axis(merged, filaments[1], d1_raw)
+
+    cos_ang = float(np.clip(np.dot(d0, d1), -1.0, 1.0))
+    angle_deg = float(np.degrees(np.arccos(cos_ang)))
+
+    delta = p1 - p0
+    d_axial = float(np.dot(delta, d0))
+    d_perp_vec = delta - d_axial * d0
+    d_perp = float(np.linalg.norm(d_perp_vec))
+    n_perp = d_perp_vec / d_perp if d_perp > 1e-9 else np.zeros(3)
+
+    # Radial reference: project the first monomer's centroid perpendicular
+    # to d̂₀ (filament 0's direction). Using d̂₀ on both sides means twist is
+    # measured in the same rotational frame.
+    c0 = chain_centroid(merged, filaments[0][0])
+    c1 = chain_centroid(merged, filaments[1][0])
+    v0 = (c0 - p0) - np.dot(c0 - p0, d0) * d0
+    v1 = (c1 - p1) - np.dot(c1 - p1, d0) * d0
+    n0, n1 = np.linalg.norm(v0), np.linalg.norm(v1)
+    v0_u = v0 / n0 if n0 > 1e-9 else np.zeros(3)
+    v1_u = v1 / n1 if n1 > 1e-9 else np.zeros(3)
+    twist_deg = float(np.degrees(np.arctan2(
+        np.dot(np.cross(v0_u, v1_u), d0),
+        np.dot(v0_u, v1_u),
+    )))
+
+    return {
+        "d0": d0, "d1": d1, "p0": p0, "p1": p1,
+        "n_perp": n_perp, "v0": v0_u, "v1": v1_u,
+        "angle_deg": angle_deg,
+        "d_axial_A": d_axial,
+        "d_perp_A": d_perp,
+        "twist_deg": twist_deg,
+    }
+
+
+def print_pair_geometry(geom, label="Filament-pair geometry"):
+    """Pretty-print the four descriptors from :func:`filament_pair_geometry`."""
+    print(f"\n{label}:")
+    print(f"  angle between axes:        {geom['angle_deg']:7.3f}°  "
+          f"(0° = parallel, 180° = antiparallel)")
+    print(f"  axial offset of p1 along d̂₀:  {geom['d_axial_A']:+7.2f} Å")
+    print(f"  perpendicular separation:  {geom['d_perp_A']:7.2f} Å")
+    print(f"  twist of filament 1 about d̂₀: {geom['twist_deg']:+7.2f}°")
+
+
+def build_filament_symmetry_transform(
+    merged: ms.Scene,
+    filaments,
+    mode: str,
+    filament0_transform: Transformation = None,
+) -> Transformation:
+    """Return the transformation that takes filament 1 from its current pose
+    to the **C2 image of filament 0** about the CaMKII COM, with the radial
+    twist forced to exactly 180°.
+
+    Parameters
+    ----------
+    filament0_transform : Transformation, optional
+        Transform already applied (or about to be applied) to filament 0
+        — typically the rotation produced by ``--optimize-filaments``. The
+        target frame for filament 1 is computed against this *effective*
+        filament 0 pose so the output assembly is genuinely symmetric. Pass
+        identity (or ``None``) when filament 0 isn't moving.
+
+    Notes
+    -----
+    Two design choices keep the result clean:
+
+    * Position and direction follow the user-specified C2:
+      ``parallel`` → C2 about ``d̂₀`` through the CaMKII COM (filament 1
+      mirrors filament 0 across the COM in the d̂₀-perpendicular plane,
+      keeping the same direction); ``antiparallel`` → C2 about
+      ``d̂₀ × n̂_⊥`` (filament 1 flips direction and mirrors across the
+      COM in the plane containing d̂₀ and n̂_⊥).
+    * The radial reference target is set explicitly to ``−v̂₀_eff`` rather
+      than to ``C2(v̂₀_eff)``. The C2-image of v̂₀ has 180° twist only when
+      v̂₀ happens to be perpendicular to the rotation axis (true for
+      ``parallel``, generically false for ``antiparallel``). Forcing the
+      target radial to ``−v̂₀_eff`` adds an extra rotation about filament
+      1's new axis that pins the twist at 180° in both modes.
+    """
+    if filament0_transform is None:
+        filament0_transform = Transformation.identity()
+
+    com_cam = _camkii_com(merged)
+
+    # Filament 0 pose at input + effective pose post-filament0_transform.
+    d0_raw, p0 = filament_helical_axis(merged, filaments[0])
+    d0_in = _polarity_signed_axis(merged, filaments[0], d0_raw)
+    d0_eff = filament0_transform.rotation @ d0_in
+    p0_eff = filament0_transform.apply(p0[None, :])[0]
+
+    c0 = chain_centroid(merged, filaments[0][0])
+    c0_eff = filament0_transform.apply(c0[None, :])[0]
+    v0_raw = (c0_eff - p0_eff) - np.dot(c0_eff - p0_eff, d0_eff) * d0_eff
+    v0_eff = v0_raw / np.linalg.norm(v0_raw)
+
+    # Filament 1 current pose (no transform yet).
+    d1_raw, p1 = filament_helical_axis(merged, filaments[1])
+    d1 = _polarity_signed_axis(merged, filaments[1], d1_raw)
+    c1 = chain_centroid(merged, filaments[1][0])
+    v1_raw = (c1 - p1) - np.dot(c1 - p1, d1) * d1
+    v1 = v1_raw / np.linalg.norm(v1_raw)
+
+    # User-specified C2 (used only for the target position).
+    delta = com_cam - p0_eff
+    n_perp_vec = delta - np.dot(delta, d0_eff) * d0_eff
+    n_perp_mag = np.linalg.norm(n_perp_vec)
+    if n_perp_mag < 1e-9:
+        raise ValueError(
+            "CaMKII COM lies on filament 0's helical axis; cannot define n_perp."
+        )
+    n_perp = n_perp_vec / n_perp_mag
+
+    if mode == "parallel":
+        c2_axis = d0_eff
+        d_tgt = d0_eff
+    elif mode == "antiparallel":
+        c2_axis = np.cross(d0_eff, n_perp)
+        c2_axis = c2_axis / np.linalg.norm(c2_axis)
+        d_tgt = -d0_eff
+    else:
+        raise ValueError(
+            f"unknown symmetry mode {mode!r} (expected 'parallel' or 'antiparallel')"
+        )
+
+    C2 = rotation_about_axis(c2_axis, com_cam, np.pi)
+    p_tgt = C2.apply(p0_eff[None, :])[0]
+
+    # Force twist to 180° by construction: v_tgt = -v0_eff (already ⊥ d_tgt
+    # since v0_eff ⊥ d0_eff and d_tgt = ±d0_eff).
+    v_tgt = -v0_eff
+
+    e2_curr = np.cross(d1, v1)
+    R_curr = np.column_stack([v1, e2_curr, d1])
+    e2_tgt = np.cross(d_tgt, v_tgt)
+    R_tgt = np.column_stack([v_tgt, e2_tgt, d_tgt])
+
+    R = R_tgt @ R_curr.T
+    t = p_tgt - R @ p1
+    return Transformation.from_matrix(R, t)
+
+
+# ---------------------------------------------------------------------------
+# Symmetry: CaMKII orientation
+# ---------------------------------------------------------------------------
+
+def camkii_frame(merged: ms.Scene):
+    """Return ``(com, stack_axis_unit, vertex_AB_dir_unit)`` for the CaMKII.
+
+    The stack axis is the unit vector from the back-face centroid to the
+    front-face centroid (the hub's two faces are flat hexagons stacked
+    face-to-face). The vertex-AB direction is the perpendicular-to-stack
+    component of ``(p_AB − com)``, where ``p_AB`` is the centroid of the
+    two A+B chains' hub residues.
+    """
+    com = _camkii_com(merged)
+
+    def _hub_centroid(chains):
+        sub = merged[
+            merged["chain"].isin(chains)
+            & merged["resid"].between(HUB_RANGE[0], HUB_RANGE[1])
+        ]
+        return sub[["x", "y", "z"]].to_numpy().mean(axis=0)
+
+    p_front = _hub_centroid(HUB_FACE_FRONT)
+    p_back = _hub_centroid(HUB_FACE_BACK)
+    stack = p_front - p_back
+    stack = stack / np.linalg.norm(stack)
+
+    p_ab = _hub_centroid(HUB_VERTEX_STACKS[0])
+    v = p_ab - com
+    v_perp = v - np.dot(v, stack) * stack
+    v_perp_unit = v_perp / np.linalg.norm(v_perp)
+
+    return com, stack, v_perp_unit
+
+
+def _camkii_target_com(d0, p0, d1, p1):
+    """Midpoint of the closest-approach segment between two infinite lines
+    ``(p0 + t·d̂₀)`` and ``(p1 + s·d̂₁)``."""
+    n = np.cross(d0, d1)
+    n_norm = np.linalg.norm(n)
+    if n_norm < 1e-9:
+        # Parallel lines: midpoint of the projection segment.
+        return 0.5 * (p0 + p1)
+    # Solve for parameters that give the closest approach.
+    n2 = n / n_norm
+    delta = p1 - p0
+    mat = np.column_stack([d0, -d1, n2])
+    coeffs = np.linalg.solve(mat, delta)
+    t, s, _ = coeffs
+    q0 = p0 + t * d0
+    q1 = p1 + s * d1
+    return 0.5 * (q0 + q1)
+
+
+def build_camkii_symmetry_transform(
+    merged: ms.Scene,
+    filaments,
+    filament1_transform: Transformation,
+    orientation: str,
+) -> Transformation:
+    """Compute the Transformation that brings the CaMKII into the symmetric pose.
+
+    Parameters
+    ----------
+    merged : Scene
+        Pre-symmetrisation merged template.
+    filaments : list of list[str]
+        ``[filament0_chains, filament1_chains]``.
+    filament1_transform : Transformation
+        Transform already applied to filament 1 (e.g. via ``--enforce-symmetry``
+        or ``--optimize-filaments``). Identity if filament 1 hasn't moved.
+        Needed so the target CaMKII COM is computed against the *post*-Block-1
+        geometry.
+    orientation : {'pointed', 'flat'}
+        Hub orientation. See module docstring.
+    """
+    from scipy.spatial.transform import Rotation as _R
+
+    com_curr, stack_curr, vAB_curr = camkii_frame(merged)
+
+    d0, p0 = filament_helical_axis(merged, filaments[0])
+    d1, p1 = filament_helical_axis(merged, filaments[1])
+
+    # Apply filament 1's post-Block-1 transform to its axis so the target
+    # COM and n_perp are measured against the actual filament-1 position
+    # we'll see in the output.
+    p1_eff = filament1_transform.apply(p1[None, :])[0]
+    d1_eff_endpoint = filament1_transform.apply((p1 + d1)[None, :])[0]
+    d1_eff = d1_eff_endpoint - p1_eff
+    d1_eff = d1_eff / np.linalg.norm(d1_eff)
+
+    com_target = _camkii_target_com(d0, p0, d1_eff, p1_eff)
+
+    # n_perp_eff: from filament 0's axis to the target COM, ⊥ to d̂₀.
+    delta = com_target - p0
+    n_perp_vec = delta - np.dot(delta, d0) * d0
+    n_perp_mag = np.linalg.norm(n_perp_vec)
+    if n_perp_mag < 1e-9:
+        raise ValueError("Target CaMKII COM lies on filament 0's axis.")
+    n_perp_eff = n_perp_vec / n_perp_mag
+
+    # Target stack axis: normal to the plane containing both filament axes
+    # (= the plane spanned by d̂₀ and n̂_⊥_eff).
+    e3_tgt = np.cross(d0, n_perp_eff)
+    e3_tgt = e3_tgt / np.linalg.norm(e3_tgt)
+    if np.dot(e3_tgt, stack_curr) < 0:
+        e3_tgt = -e3_tgt
+
+    # Target AB-vertex direction depending on orientation.
+    if orientation == "pointed":
+        e1_tgt = n_perp_eff
+    elif orientation == "flat":
+        # AB sits at +120° clockwise (i.e. +120° about +e3_tgt with the
+        # clockwise-as-positive convention used in the user's vertex
+        # ordering) from DE; in the "flat" pose DE points along ±d̂₀.
+        R_120 = _R.from_rotvec(np.deg2rad(120) * e3_tgt).as_matrix()
+        e1_tgt = R_120 @ d0
+        # Project out any stack-axis component and renormalise.
+        e1_tgt = e1_tgt - np.dot(e1_tgt, e3_tgt) * e3_tgt
+        e1_tgt = e1_tgt / np.linalg.norm(e1_tgt)
+    else:
+        raise ValueError(f"unknown orientation {orientation!r} (expected 'pointed' or 'flat')")
+
+    # Pick the sign of e1_tgt that minimises the rotation distance from
+    # vAB_curr, so we don't flip the hexagon by 180° unnecessarily.
+    if np.dot(e1_tgt, vAB_curr) < 0:
+        e1_tgt = -e1_tgt
+
+    # Build orthonormal current and target frames; the third axis is e2 = e3 × e1.
+    e2_curr = np.cross(stack_curr, vAB_curr)
+    R_curr = np.column_stack([vAB_curr, e2_curr, stack_curr])
+    e2_tgt = np.cross(e3_tgt, e1_tgt)
+    R_tgt = np.column_stack([e1_tgt, e2_tgt, e3_tgt])
+
+    R = R_tgt @ R_curr.T
+    t = com_target - R @ com_curr
+    return Transformation.from_matrix(R, t)
+
+
+# ---------------------------------------------------------------------------
 # Pipeline stages
 # ---------------------------------------------------------------------------
 
@@ -514,7 +859,8 @@ def compute_chain_transforms(merged, assignments):
     return chain_transforms
 
 
-def build_frame(merged, chain_transforms, alpha, filament_rotations=None):
+def build_frame(merged, chain_transforms, alpha,
+                filament_rotations=None, camkii_symmetry_transform=None):
     """Render the structure at fraction ``alpha`` of the morph (0 = rest, 1 = final).
 
     Parameters
@@ -526,6 +872,11 @@ def build_frame(merged, chain_transforms, alpha, filament_rotations=None):
         ``alpha`` just like the kinase transforms. Pass the same list
         used to compose the chain_transforms so the actins move in lock-
         step with the kinases.
+    camkii_symmetry_transform : Transformation, optional
+        A single transform applied to the **hub residues** of all 12 CaMKII
+        chains (sclerp-interpolated by ``alpha``). The linker morph for each
+        chain uses ``T_cam_at`` as its ``t_start`` (instead of identity) so
+        the hub end of the linker tracks the moved hub.
     """
     out = merged.copy()
 
@@ -536,6 +887,20 @@ def build_frame(merged, chain_transforms, alpha, filament_rotations=None):
             mask = out["chain"].isin(fil_chains).to_numpy()
             coords[mask] = T_at.apply(coords[mask])
         out.set_coordinates(coords)
+
+    if camkii_symmetry_transform is not None:
+        T_cam_at = Transformation.identity().interpolate(
+            camkii_symmetry_transform, alpha, method="sclerp",
+        )
+        coords = out.get_coordinates().to_numpy()
+        mask = (
+            out["chain"].isin(CAMKII_CHAINS)
+            & out["resid"].between(HUB_RANGE[0], HUB_RANGE[1])
+        ).to_numpy()
+        coords[mask] = T_cam_at.apply(coords[mask])
+        out.set_coordinates(coords)
+    else:
+        T_cam_at = Transformation.identity()
 
     for src_chain, T_kin in chain_transforms:
         T_at = Transformation.identity().interpolate(T_kin, alpha, method="sclerp")
@@ -549,7 +914,7 @@ def build_frame(merged, chain_transforms, alpha, filament_rotations=None):
         out = out.morph_segment(
             chain=src_chain,
             resid_range=range(LINKER_RANGE[1], LINKER_RANGE[0] - 1, -1),
-            t_start=Transformation.identity(),
+            t_start=T_cam_at,
             t_end=T_at,
             method="sclerp",
         )
@@ -557,7 +922,7 @@ def build_frame(merged, chain_transforms, alpha, filament_rotations=None):
 
 
 def write_animation(merged, chain_transforms, n_frames, out_path,
-                    filament_rotations=None):
+                    filament_rotations=None, camkii_symmetry_transform=None):
     """Write a multi-model PDB with ``n_frames`` morph frames (rest → final)."""
     print(f"Building {n_frames}-frame morph movie …")
     # Atom layout is identical across frames, so build a per-frame coordinate
@@ -565,8 +930,11 @@ def write_animation(merged, chain_transforms, n_frames, out_path,
     frame_coords = []
     for i in range(n_frames):
         alpha = 0.0 if n_frames == 1 else i / (n_frames - 1)
-        frame = build_frame(merged, chain_transforms, alpha,
-                            filament_rotations=filament_rotations)
+        frame = build_frame(
+            merged, chain_transforms, alpha,
+            filament_rotations=filament_rotations,
+            camkii_symmetry_transform=camkii_symmetry_transform,
+        )
         frame_coords.append(frame.get_coordinates().to_numpy())
         print(f"  frame {i + 1:>3d}/{n_frames} (α = {alpha:.3f}) built")
     movie = merged.copy()
@@ -611,9 +979,31 @@ def parse_args():
              "The result is then refined with Brent's method.",
     )
     p.add_argument(
+        "--enforce-symmetry", choices=["parallel", "antiparallel"], default=None,
+        help="Override filament 1's pose so the pair is symmetric about the CaMKII COM. "
+             "'parallel' rotates 180° around filament 0's helical-axis direction (filaments "
+             "point the same way, on opposite sides of CaMKII); 'antiparallel' rotates 180° "
+             "around the axis perpendicular to both d̂₀ and the COM perpendicular (filaments "
+             "point opposite ways). Compatible with --optimize-filaments (which then applies "
+             "only to filament 0).",
+    )
+    p.add_argument(
+        "--enforce-camkii-symmetry", choices=["pointed", "flat"], default=None,
+        help="Translate the CaMKII hub to the midpoint between the two filaments and orient "
+             "the hexagonal dodecamer. 'pointed' places vertex AB perpendicular to the "
+             "helical axis (a vertex points toward each filament); 'flat' aligns the HK↔DE "
+             "diameter with the helical axis (an edge faces each filament). The kinases stay "
+             "where the assignment placed them; the linkers re-morph to bridge the new hub.",
+    )
+    p.add_argument(
         "--output", default=OUT_PATH,
         help="Final structure PDB path (default: %(default)s).",
     )
+
+    p.add_argument("--split", action="store_true", 
+                   help="Split the merged template into separate CIF files for the CaMKII hub "
+                   "and each actin filament, then exit. Useful for manual inspection and picking "
+                   "of candidate poses in a viewer.")
     return p.parse_args()
 
 
@@ -630,7 +1020,7 @@ def main():
     args = parse_args()
 
     print("Loading inputs …")
-    merged = ms.Scene.from_pdb(MERGED_PATH)
+    merged = ms.Scene.from_file(MERGED_PATH)
     qian = ms.Scene.from_pdb(QIAN_PATH)
     print(f"  merged: {len(merged)} atoms, {merged['chain'].nunique()} chains")
     print(f"  qian:   {len(qian)} atoms")
@@ -644,6 +1034,10 @@ def main():
         merged, kabt_kinase, kabt_actins
     )
     print(f"  hub ring centroid: [{hub_center[0]:.2f}, {hub_center[1]:.2f}, {hub_center[2]:.2f}]")
+
+    # Always-on geometry printout for the filament pair as currently positioned.
+    pair_geom = filament_pair_geometry(merged, filaments)
+    print_pair_geometry(pair_geom, label="Filament-pair geometry (input)")
 
     if args.save_candidates:
         write_candidates_view(merged, candidates, args.save_candidates)
@@ -664,11 +1058,16 @@ def main():
     print("Computing per-chain kinase transforms …")
     chain_transforms = compute_chain_transforms(merged, assignments)
 
+    # ------------------------------------------------------------------
+    # Per-filament transform pass: --enforce-symmetry wins on filament 1,
+    # --optimize-filaments otherwise. Either one (or both) populates
+    # filament_rotations and chain_extra_rot.
+    # ------------------------------------------------------------------
     filament_rotations = None
-    if args.optimize_filaments:
-        print("\nOptimizing filament rotations to balance linker spans …")
+    if args.optimize_filaments or args.enforce_symmetry:
         spans_before = compute_linker_spans(merged, chain_transforms)
-        print("  Linker spans before optimisation:")
+        print("\nFilament-rotation pass:")
+        print("  Linker spans before:")
         for src in sorted(spans_before):
             print(f"    chain {src}: {spans_before[src]:7.2f} Å")
         print(f"    summary: {_spans_summary(spans_before)}")
@@ -676,55 +1075,113 @@ def main():
         chain_to_filament = {src: cand["filament"] for src, cand in assignments}
         filament_rotations = []
         chain_extra_rot = {}
+        per_filament_transforms = {}  # fi -> Transformation (used to pass T0 into T_sym for fi=1)
         for fi, fil_chains in enumerate(filaments):
             bound = [(c, T) for c, T in chain_transforms
                      if chain_to_filament[c] == fi]
-            if not bound:
-                continue
-            print(f"\n  Filament {fi} (chains bound: {sorted(c for c, _ in bound)}):")
-            result = optimize_filament_rotation(
-                merged, bound, fil_chains, scan_step_deg=args.scan_step,
-            )
-            print(f"    helical axis dir: [{result['axis_dir'][0]:+.3f}, "
-                  f"{result['axis_dir'][1]:+.3f}, {result['axis_dir'][2]:+.3f}]")
-            print(f"    helical axis pt:  [{result['axis_point'][0]:+8.2f}, "
-                  f"{result['axis_point'][1]:+8.2f}, {result['axis_point'][2]:+8.2f}]")
-            print(f"    scan range: 0°..360° step {args.scan_step}°  →  "
-                  f"min Σ² = {result['scan_objective'].min():.1f} "
-                  f"@ {result['scan_angles_deg'][result['scan_objective'].argmin()]:.1f}°, "
-                  f"max Σ² = {result['scan_objective'].max():.1f}")
-            print(f"    refined optimum: angle = {result['angle_deg']:.3f}°, "
-                  f"Σ² = {result['objective']:.1f}")
-            for src in sorted(result["spans_at_optimum"]):
-                print(f"      chain {src}: {result['spans_at_optimum'][src]:7.2f} Å")
-            filament_rotations.append((fil_chains, result["T_rot"]))
-            for src, _ in bound:
-                chain_extra_rot[src] = result["T_rot"]
 
-        # Compose: chain transform becomes T_rot ∘ T_kin so the kinase ends up at
-        # the rotated-placed position.
+            T_fi = None
+            if fi == 1 and args.enforce_symmetry:
+                print(f"\n  Filament {fi}: --enforce-symmetry={args.enforce_symmetry}")
+                # Use filament 0's effective (post-optimisation) pose as the
+                # symmetry reference so the C2 holds against the *output*
+                # filament 0, not its input.
+                T_fi = build_filament_symmetry_transform(
+                    merged, filaments, mode=args.enforce_symmetry,
+                    filament0_transform=per_filament_transforms.get(0),
+                )
+                rotvec = np.array([0.0, 0.0, 0.0])
+                try:
+                    from scipy.spatial.transform import Rotation as _R
+                    rotvec = _R.from_matrix(T_fi.rotation).as_rotvec()
+                except Exception:
+                    pass
+                print(f"    rotation axis ≈ [{rotvec[0]:+.3f}, {rotvec[1]:+.3f}, "
+                      f"{rotvec[2]:+.3f}] (180°)")
+            elif args.optimize_filaments and bound:
+                print(f"\n  Filament {fi}: --optimize-filaments "
+                      f"(chains bound: {sorted(c for c, _ in bound)})")
+                result = optimize_filament_rotation(
+                    merged, bound, fil_chains, scan_step_deg=args.scan_step,
+                )
+                T_fi = result["T_rot"]
+                print(f"    helical axis dir: [{result['axis_dir'][0]:+.3f}, "
+                      f"{result['axis_dir'][1]:+.3f}, {result['axis_dir'][2]:+.3f}]")
+                print(f"    helical axis pt:  [{result['axis_point'][0]:+8.2f}, "
+                      f"{result['axis_point'][1]:+8.2f}, {result['axis_point'][2]:+8.2f}]")
+                print(f"    scan range: 0°..360° step {args.scan_step}°  →  "
+                      f"min Σ² = {result['scan_objective'].min():.1f} "
+                      f"@ {result['scan_angles_deg'][result['scan_objective'].argmin()]:.1f}°, "
+                      f"max Σ² = {result['scan_objective'].max():.1f}")
+                print(f"    refined optimum: angle = {result['angle_deg']:.3f}°, "
+                      f"Σ² = {result['objective']:.1f}")
+
+            if T_fi is None:
+                continue
+            per_filament_transforms[fi] = T_fi
+            filament_rotations.append((fil_chains, T_fi))
+            for src, _ in bound:
+                chain_extra_rot[src] = T_fi
+
+        # Compose so chain_transforms now produce the rotated-placed kinase.
         chain_transforms = [
             (src, chain_extra_rot[src].compose(T) if src in chain_extra_rot else T)
             for src, T in chain_transforms
         ]
 
         spans_after = compute_linker_spans(merged, chain_transforms)
-        print("\n  Linker spans after optimisation:")
+        print("\n  Linker spans after:")
         for src in sorted(spans_after):
             print(f"    chain {src}: {spans_after[src]:7.2f} Å")
         print(f"    summary: {_spans_summary(spans_after)}")
-        print()
+        if not filament_rotations:
+            filament_rotations = None
 
-    print("Applying kinase transforms + morphing linkers (ScLERP) …")
-    final = build_frame(merged, chain_transforms, alpha=1.0,
-                        filament_rotations=filament_rotations)
+    # ------------------------------------------------------------------
+    # --enforce-camkii-symmetry: rigid transform on hub residues + linker
+    # re-morph from the moved hub to the (already placed) kinase.
+    # ------------------------------------------------------------------
+    camkii_symmetry_transform = None
+    if args.enforce_camkii_symmetry:
+        print(f"\nCaMKII symmetrisation: --enforce-camkii-symmetry={args.enforce_camkii_symmetry}")
+        # Identify the transform that's already been applied to filament 1
+        # (identity unless --enforce-symmetry or --optimize-filaments fired).
+        T_fil1 = Transformation.identity()
+        if filament_rotations:
+            for fil_chains, T in filament_rotations:
+                if fil_chains is filaments[1]:
+                    T_fil1 = T
+                    break
+        camkii_symmetry_transform = build_camkii_symmetry_transform(
+            merged, filaments, T_fil1, args.enforce_camkii_symmetry,
+        )
+        com_curr, _, _ = camkii_frame(merged)
+        com_target = camkii_symmetry_transform.apply(com_curr[None, :])[0]
+        translation = com_target - com_curr
+        print(f"  CaMKII COM current: [{com_curr[0]:+.2f}, {com_curr[1]:+.2f}, {com_curr[2]:+.2f}]")
+        print(f"  CaMKII COM target:  [{com_target[0]:+.2f}, {com_target[1]:+.2f}, {com_target[2]:+.2f}]")
+        print(f"  translation:        {np.linalg.norm(translation):.2f} Å")
+
+    print("\nApplying kinase transforms + morphing linkers (ScLERP) …")
+    final = build_frame(
+        merged, chain_transforms, alpha=1.0,
+        filament_rotations=filament_rotations,
+        camkii_symmetry_transform=camkii_symmetry_transform,
+    )
     final.to_file(args.output)
     print(f"Wrote {args.output} ({len(final)} atoms)")
 
+    # Always re-print the final geometry so it can be compared against the input.
+    final_pair_geom = filament_pair_geometry(final, filaments)
+    print_pair_geometry(final_pair_geom, label="Filament-pair geometry (output)")
+
     if args.animate:
         movie_path = args.output.replace(".pdb", "_movie.pdb")
-        write_animation(merged, chain_transforms, args.animate, movie_path,
-                        filament_rotations=filament_rotations)
+        write_animation(
+            merged, chain_transforms, args.animate, movie_path,
+            filament_rotations=filament_rotations,
+            camkii_symmetry_transform=camkii_symmetry_transform,
+        )
 
     return 0
 
