@@ -169,6 +169,180 @@ def fit_kabt_to_pair(kabt_actins, ci, cj, merged_pair_ca):
 
 
 # ---------------------------------------------------------------------------
+# Filament-rotation optimization
+# ---------------------------------------------------------------------------
+
+def filament_helical_axis(scene: ms.Scene, fil_chains):
+    """Return ``(axis_direction_unit, axis_point)`` for the helical axis of a
+    filament identified by the chains in ``fil_chains``.
+
+    The axis is computed in pure-numpy from the atom coordinates: the
+    centroid of all atoms in the filament lies on the axis (rotations
+    around the axis permute the monomers, so their centred sum is
+    rotation-invariant), and the direction is the first principal
+    component of the centred coordinates. Equivalent to building a
+    z-aligned synthetic filament and Kabsch-fitting it onto the real one
+    — the rotation column corresponding to z gives the direction and the
+    translation gives a point on the axis.
+    """
+    xyz = scene[scene["chain"].isin(fil_chains)][["x", "y", "z"]].to_numpy()
+    axis_point = xyz.mean(axis=0)
+    centred = xyz - axis_point
+    _, _, vt = np.linalg.svd(centred, full_matrices=False)
+    return vt[0], axis_point
+
+
+def rotation_about_axis(axis_direction, axis_point, angle_rad) -> Transformation:
+    """Rotation around the line through ``axis_point`` parallel to
+    ``axis_direction`` as a :class:`Transformation`."""
+    from scipy.spatial.transform import Rotation as _R
+    axis = np.asarray(axis_direction, dtype=float)
+    axis = axis / np.linalg.norm(axis)
+    R = _R.from_rotvec(angle_rad * axis).as_matrix()
+    t = axis_point - R @ axis_point
+    return Transformation.from_matrix(R, t)
+
+
+def linker_endpoints(merged: ms.Scene, chain_transforms):
+    """For each chain in ``chain_transforms``, return its
+    ``(src_chain, kinase_end_placed, hub_end_fixed)`` linker endpoints.
+
+    The kinase-end (CA of the first linker residue, ``LINKER_RANGE[0]``)
+    is the ``T_kin``-placed position; the hub-end (CA of the last linker
+    residue, ``LINKER_RANGE[1]``) is unchanged from merged.
+    """
+    kin_resid = LINKER_RANGE[0]
+    hub_resid = LINKER_RANGE[1]
+    endpoints = []
+    for src_chain, T_kin in chain_transforms:
+        m_kin = ((merged["chain"] == src_chain)
+                 & (merged["resid"] == kin_resid)
+                 & (merged["name"] == "CA"))
+        m_hub = ((merged["chain"] == src_chain)
+                 & (merged["resid"] == hub_resid)
+                 & (merged["name"] == "CA"))
+        if not m_kin.any() or not m_hub.any():
+            raise ValueError(
+                f"chain {src_chain}: missing CA at residue "
+                f"{kin_resid} or {hub_resid}"
+            )
+        p_kin = merged.loc[m_kin, ["x", "y", "z"]].to_numpy()[0]
+        p_hub = merged.loc[m_hub, ["x", "y", "z"]].to_numpy()[0]
+        p_kin_placed = T_kin.apply(p_kin[None, :])[0]
+        endpoints.append((src_chain, p_kin_placed, p_hub))
+    return endpoints
+
+
+def compute_linker_spans(merged: ms.Scene, chain_transforms,
+                          chain_rotations=None):
+    """Distance between the first and last linker beads, per chain.
+
+    Parameters
+    ----------
+    merged : Scene
+    chain_transforms : list of (src_chain, T_kin)
+    chain_rotations : dict {src_chain: Transformation}, optional
+        Additional per-chain rotation applied to the kinase-end bead
+        (e.g. a filament rotation about the helical axis). Chains not in
+        the dict have no extra rotation.
+    """
+    chain_rotations = chain_rotations or {}
+    spans = {}
+    for src_chain, p_kin_placed, p_hub in linker_endpoints(merged, chain_transforms):
+        T_extra = chain_rotations.get(src_chain)
+        if T_extra is not None:
+            p_kin_placed = T_extra.apply(p_kin_placed[None, :])[0]
+        spans[src_chain] = float(np.linalg.norm(p_kin_placed - p_hub))
+    return spans
+
+
+def optimize_filament_rotation(merged: ms.Scene, chain_transforms_for_fil,
+                               fil_chains, scan_step_deg=1.0):
+    """Find the rotation about the filament's helical axis that minimises
+    the sum of squared linker spans for the chains bound to it.
+
+    Parameters
+    ----------
+    merged : Scene
+        Original merged template (kinases at rest position).
+    chain_transforms_for_fil : list of (src_chain, T_kin)
+        Only the source chains that are bound to this filament.
+    fil_chains : list of str
+        The filament's actin chain IDs (used to compute the helical axis).
+    scan_step_deg : float
+        Coarse-scan step. The minimum is refined with Brent within the
+        bracket of width ``2 * scan_step_deg`` around the coarse winner.
+
+    Returns
+    -------
+    dict
+        With keys ``angle_deg``, ``angle_rad``, ``T_rot`` (rotation about
+        the filament's axis), ``axis_dir``, ``axis_point``, ``objective``
+        (sum of squared spans at the optimum), ``scan_angles_deg``,
+        ``scan_objective``, ``spans_at_optimum`` (src_chain -> distance).
+    """
+    if not chain_transforms_for_fil:
+        return None
+
+    axis_dir, axis_point = filament_helical_axis(merged, fil_chains)
+
+    endpoints = linker_endpoints(merged, chain_transforms_for_fil)
+    p_kin = np.array([ep[1] for ep in endpoints])
+    p_hub = np.array([ep[2] for ep in endpoints])
+
+    def objective(angle_rad):
+        T_rot = rotation_about_axis(axis_dir, axis_point, angle_rad)
+        p_kin_rot = T_rot.apply(p_kin)
+        spans = np.linalg.norm(p_kin_rot - p_hub, axis=1)
+        return float(np.sum(spans ** 2))
+
+    scan_angles_deg = np.arange(0.0, 360.0, scan_step_deg)
+    scan_vals = np.array([objective(np.deg2rad(a)) for a in scan_angles_deg])
+    best_idx = int(np.argmin(scan_vals))
+    coarse_best_deg = float(scan_angles_deg[best_idx])
+
+    from scipy.optimize import minimize_scalar
+    bracket = (
+        coarse_best_deg - scan_step_deg,
+        coarse_best_deg,
+        coarse_best_deg + scan_step_deg,
+    )
+    try:
+        result = minimize_scalar(
+            lambda a_deg: objective(np.deg2rad(a_deg)),
+            bracket=bracket,
+            method="brent",
+            options={"xtol": 1e-4},
+        )
+        if result.fun < scan_vals[best_idx]:
+            best_deg = float(result.x)
+            best_obj = float(result.fun)
+        else:
+            best_deg = coarse_best_deg
+            best_obj = float(scan_vals[best_idx])
+    except (ValueError, RuntimeError):
+        best_deg = coarse_best_deg
+        best_obj = float(scan_vals[best_idx])
+
+    T_best = rotation_about_axis(axis_dir, axis_point, np.deg2rad(best_deg))
+    p_kin_rot = T_best.apply(p_kin)
+    spans = np.linalg.norm(p_kin_rot - p_hub, axis=1)
+    spans_at_optimum = {ep[0]: float(s) for ep, s in zip(endpoints, spans)}
+
+    return {
+        "angle_deg": best_deg,
+        "angle_rad": np.deg2rad(best_deg),
+        "T_rot": T_best,
+        "axis_dir": axis_dir,
+        "axis_point": axis_point,
+        "objective": best_obj,
+        "scan_angles_deg": scan_angles_deg,
+        "scan_objective": scan_vals,
+        "spans_at_optimum": spans_at_optimum,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Pipeline stages
 # ---------------------------------------------------------------------------
 
@@ -213,7 +387,7 @@ def generate_candidates(merged, kabt_kinase, kabt_actins):
 
     candidates.sort(key=lambda c: c["hub_distance"])
     print(f"  generated {len(candidates)} candidates (sorted by distance to hub centroid)")
-    return candidates, hub_center
+    return candidates, hub_center, filaments
 
 
 def write_candidates_view(merged, candidates, out_prefix):
@@ -340,9 +514,29 @@ def compute_chain_transforms(merged, assignments):
     return chain_transforms
 
 
-def build_frame(merged, chain_transforms, alpha):
-    """Render the structure at fraction ``alpha`` of the morph (0 = rest, 1 = final)."""
+def build_frame(merged, chain_transforms, alpha, filament_rotations=None):
+    """Render the structure at fraction ``alpha`` of the morph (0 = rest, 1 = final).
+
+    Parameters
+    ----------
+    merged, chain_transforms, alpha : see above.
+    filament_rotations : list of (list[str], Transformation), optional
+        Per-filament rotations to apply to the actin atoms of each
+        filament's chains. Each rotation is sclerp-interpolated by
+        ``alpha`` just like the kinase transforms. Pass the same list
+        used to compose the chain_transforms so the actins move in lock-
+        step with the kinases.
+    """
     out = merged.copy()
+
+    if filament_rotations:
+        coords = out.get_coordinates().to_numpy()
+        for fil_chains, T_rot in filament_rotations:
+            T_at = Transformation.identity().interpolate(T_rot, alpha, method="sclerp")
+            mask = out["chain"].isin(fil_chains).to_numpy()
+            coords[mask] = T_at.apply(coords[mask])
+        out.set_coordinates(coords)
+
     for src_chain, T_kin in chain_transforms:
         T_at = Transformation.identity().interpolate(T_kin, alpha, method="sclerp")
         mask = (
@@ -362,7 +556,8 @@ def build_frame(merged, chain_transforms, alpha):
     return out
 
 
-def write_animation(merged, chain_transforms, n_frames, out_path):
+def write_animation(merged, chain_transforms, n_frames, out_path,
+                    filament_rotations=None):
     """Write a multi-model PDB with ``n_frames`` morph frames (rest → final)."""
     print(f"Building {n_frames}-frame morph movie …")
     # Atom layout is identical across frames, so build a per-frame coordinate
@@ -370,7 +565,8 @@ def write_animation(merged, chain_transforms, n_frames, out_path):
     frame_coords = []
     for i in range(n_frames):
         alpha = 0.0 if n_frames == 1 else i / (n_frames - 1)
-        frame = build_frame(merged, chain_transforms, alpha)
+        frame = build_frame(merged, chain_transforms, alpha,
+                            filament_rotations=filament_rotations)
         frame_coords.append(frame.get_coordinates().to_numpy())
         print(f"  frame {i + 1:>3d}/{n_frames} (α = {alpha:.3f}) built")
     movie = merged.copy()
@@ -403,10 +599,31 @@ def parse_args():
              "to the final pose.",
     )
     p.add_argument(
+        "--optimize-filaments", action="store_true",
+        help="After computing the kinase transforms, rotate each actin filament "
+             "around its helical axis to minimise the sum of squared linker spans "
+             "(distance between the first and last linker beads). Treats the "
+             "linker as a spring whose tension we want minimised and equalised.",
+    )
+    p.add_argument(
+        "--scan-step", type=float, default=1.0, metavar="DEG",
+        help="Coarse scan step in degrees for --optimize-filaments (default: %(default)s). "
+             "The result is then refined with Brent's method.",
+    )
+    p.add_argument(
         "--output", default=OUT_PATH,
         help="Final structure PDB path (default: %(default)s).",
     )
     return p.parse_args()
+
+
+def _spans_summary(spans):
+    """Return a one-line summary of a span dict."""
+    vals = np.array(list(spans.values()))
+    return (f"mean {vals.mean():6.2f} Å, "
+            f"std {vals.std():5.2f} Å, "
+            f"min {vals.min():6.2f}, max {vals.max():6.2f}, "
+            f"Σ² {float(np.sum(vals ** 2)):.1f}")
 
 
 def main():
@@ -423,7 +640,9 @@ def main():
     print(f"  KABT kinase: {len(kabt_kinase)} atoms")
     print(f"  KABT actins: {len(kabt_actins)} atoms")
 
-    candidates, hub_center = generate_candidates(merged, kabt_kinase, kabt_actins)
+    candidates, hub_center, filaments = generate_candidates(
+        merged, kabt_kinase, kabt_actins
+    )
     print(f"  hub ring centroid: [{hub_center[0]:.2f}, {hub_center[1]:.2f}, {hub_center[2]:.2f}]")
 
     if args.save_candidates:
@@ -445,14 +664,67 @@ def main():
     print("Computing per-chain kinase transforms …")
     chain_transforms = compute_chain_transforms(merged, assignments)
 
+    filament_rotations = None
+    if args.optimize_filaments:
+        print("\nOptimizing filament rotations to balance linker spans …")
+        spans_before = compute_linker_spans(merged, chain_transforms)
+        print("  Linker spans before optimisation:")
+        for src in sorted(spans_before):
+            print(f"    chain {src}: {spans_before[src]:7.2f} Å")
+        print(f"    summary: {_spans_summary(spans_before)}")
+
+        chain_to_filament = {src: cand["filament"] for src, cand in assignments}
+        filament_rotations = []
+        chain_extra_rot = {}
+        for fi, fil_chains in enumerate(filaments):
+            bound = [(c, T) for c, T in chain_transforms
+                     if chain_to_filament[c] == fi]
+            if not bound:
+                continue
+            print(f"\n  Filament {fi} (chains bound: {sorted(c for c, _ in bound)}):")
+            result = optimize_filament_rotation(
+                merged, bound, fil_chains, scan_step_deg=args.scan_step,
+            )
+            print(f"    helical axis dir: [{result['axis_dir'][0]:+.3f}, "
+                  f"{result['axis_dir'][1]:+.3f}, {result['axis_dir'][2]:+.3f}]")
+            print(f"    helical axis pt:  [{result['axis_point'][0]:+8.2f}, "
+                  f"{result['axis_point'][1]:+8.2f}, {result['axis_point'][2]:+8.2f}]")
+            print(f"    scan range: 0°..360° step {args.scan_step}°  →  "
+                  f"min Σ² = {result['scan_objective'].min():.1f} "
+                  f"@ {result['scan_angles_deg'][result['scan_objective'].argmin()]:.1f}°, "
+                  f"max Σ² = {result['scan_objective'].max():.1f}")
+            print(f"    refined optimum: angle = {result['angle_deg']:.3f}°, "
+                  f"Σ² = {result['objective']:.1f}")
+            for src in sorted(result["spans_at_optimum"]):
+                print(f"      chain {src}: {result['spans_at_optimum'][src]:7.2f} Å")
+            filament_rotations.append((fil_chains, result["T_rot"]))
+            for src, _ in bound:
+                chain_extra_rot[src] = result["T_rot"]
+
+        # Compose: chain transform becomes T_rot ∘ T_kin so the kinase ends up at
+        # the rotated-placed position.
+        chain_transforms = [
+            (src, chain_extra_rot[src].compose(T) if src in chain_extra_rot else T)
+            for src, T in chain_transforms
+        ]
+
+        spans_after = compute_linker_spans(merged, chain_transforms)
+        print("\n  Linker spans after optimisation:")
+        for src in sorted(spans_after):
+            print(f"    chain {src}: {spans_after[src]:7.2f} Å")
+        print(f"    summary: {_spans_summary(spans_after)}")
+        print()
+
     print("Applying kinase transforms + morphing linkers (ScLERP) …")
-    final = build_frame(merged, chain_transforms, alpha=1.0)
+    final = build_frame(merged, chain_transforms, alpha=1.0,
+                        filament_rotations=filament_rotations)
     final.to_file(args.output)
     print(f"Wrote {args.output} ({len(final)} atoms)")
 
     if args.animate:
         movie_path = args.output.replace(".pdb", "_movie.pdb")
-        write_animation(merged, chain_transforms, args.animate, movie_path)
+        write_animation(merged, chain_transforms, args.animate, movie_path,
+                        filament_rotations=filament_rotations)
 
     return 0
 

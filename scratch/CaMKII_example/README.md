@@ -71,12 +71,54 @@ unique. Step 3 — apply it:
 python script.py --assignment camkii_assignment.txt
 ```
 
-### 3. Animation
+### 3. Filament-rotation optimisation
+
+Once the kinases are in place, the linkers between hub and kinase
+generally have unequal lengths — some stretched, some bunched. Treating
+each linker as a spring, we can rotate each actin filament around its
+own helical axis to balance the spring tensions. The kinases swing
+around with the filament (rotations around the helical axis are an
+internal degree of freedom of the bound system), and the linker spans
+adjust accordingly.
+
+Add `--optimize-filaments`:
+
+```bash
+python script.py --assignment camkii_assignment.txt --optimize-filaments
+```
+
+For each of the two filaments, the script:
+
+1. Computes the helical axis from the filament's atom coordinates
+   (centroid → point on axis; first principal component → direction —
+   equivalent to fitting a z-aligned synthetic filament and reading the
+   rotation off the Kabsch result).
+2. Coarsely scans rotation angle 0°–360° (every `--scan-step` degrees,
+   default 1°) and finds the angle that minimises the sum of squared
+   linker spans for the chains bound to that filament. The "linker
+   span" is the distance between the CA of the first linker residue
+   (`LINKER_RANGE[0]`, anchored to the kinase end) and the CA of the
+   last linker residue (`LINKER_RANGE[1]`, anchored to the hub end).
+3. Refines the coarse winner with Brent's method.
+4. Prints the spans per chain before and after, so you can see the
+   tightening.
+
+The sum-of-squares objective tends to equalise the spans (by penalising
+outliers) more than it minimises the absolute mean; expect the standard
+deviation of the per-chain spans to drop more than the mean. On the
+provided v3 assignment, std went from 22.3 Å → 15.6 Å.
+
+`--optimize-filaments` composes cleanly with `--animate N`; in the
+movie, both the actin filaments and the kinases gradually rotate
+together, with the linkers ScLERP-morphing between them.
+
+### 4. Animation
 
 Add `--animate N` to either mode to also write an N-frame multi-model PDB:
 
 ```bash
 python script.py --assignment camkii_assignment.txt --animate 20
+python script.py --assignment camkii_assignment.txt --optimize-filaments --animate 20
 ```
 
 This produces `camkii_on_actin_movie.pdb` (≈10 MB per frame, so ~200 MB at
@@ -88,8 +130,10 @@ N=20). Open it as a trajectory:
 | VMD | `mol new camkii_on_actin_movie.pdb` (auto-detected) |
 | ChimeraX | `open camkii_on_actin_movie.pdb` (auto-detected) |
 
-Hub and actins stay fixed across frames; only the 12 kinase domains and
-their linkers move.
+Without `--optimize-filaments`, hub and actins stay fixed across frames;
+only the 12 kinase domains and their linkers move. With
+`--optimize-filaments`, the two actin filaments also rotate around their
+own helical axes.
 
 ## What the pipeline does
 
@@ -106,12 +150,16 @@ their linkers move.
    `Transformation` to KABT_kinase. Gives 11 candidates per filament, 22
    total.
 4. **Assign.** Either Hungarian on hub-distance ranking, or your manual file.
-5. **Move kinases + morph linkers.** For each assigned source chain,
+5. **(Optional) Optimise filament rotation.** Rotate each filament around
+   its helical axis to minimise the sum of squared linker spans. Coarse
+   scan every degree, then Brent-refine.
+6. **Move kinases + morph linkers.** For each assigned source chain,
    `compute_transformation()` puts the source kinase onto the candidate,
    `transform()` applies that to the kinase residues, and
    `morph_segment(method='sclerp')` ScLERP-interpolates the linker between
-   the unchanged hub end (`identity`) and the moved kinase end (`T_kin`).
-6. **Write** the final PDB (and the movie if `--animate` was given).
+   the unchanged hub end (`identity`) and the moved kinase end (`T_kin` —
+   or `T_rot ∘ T_kin` if filament rotation was applied).
+7. **Write** the final PDB (and the movie if `--animate` was given).
 
 ## Notes / caveats
 
