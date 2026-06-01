@@ -681,13 +681,8 @@ class Scene(pandas.DataFrame):
         return cls(model)
 
     # Writing
-    def write_pdb(self, file_name=None, verbose=False):
-
-        # TODO Add connectivity output
-        # Fill empty columns
-        if verbose:
-            print(f"Writing pdb file ({len(self)} atoms): {file_name}")
-
+    def _format_pdb_atoms(self) -> str:
+        """Return the PDB ATOM lines for the current single-frame coordinates."""
         pdb_table = self.copy()
         pdb_table['serial'] = np.arange(1, len(self) + 1) if 'serial' not in pdb_table else pdb_table['serial']
         pdb_table['name'] = 'A' if 'name' not in pdb_table else pdb_table['name']
@@ -704,15 +699,12 @@ class Scene(pandas.DataFrame):
         pdb_table['element'] = '' if 'element' not in pdb_table else pdb_table['element']
         pdb_table['charge'] = 0 if 'charge' not in pdb_table else pdb_table['charge']
 
-        # Override chain names if molecule is present
-        if 'molecule' in pdb_table:
-            cc = utils.chain_name_generator(format='pdb')
-            molecules = self['molecule'].unique()
-            cc_d = dict(zip(molecules, cc))
-            # cc_d = dict(zip(range(1, len(cc) + 1), cc))
-            pdb_table['chain'] = self['molecule'].replace(cc_d)
+        # The ``chain`` column is authoritative. (Historically this branch
+        # remapped chain names from ``molecule``, but ``from_pdb`` always
+        # initializes ``molecule = 0``, so the remap collapsed every chain
+        # into one. Users who want molecule-keyed output should rewrite
+        # ``scene['chain']`` themselves before calling ``write_pdb``.)
 
-        # Write pdb file
         lines = ''
         for i, atom in pdb_table.iterrows():
             line = f'ATOM  {i%100000:>5} {atom["name"]:^4} {atom["resname"]:<3} {atom["chain"]}{atom["resid"]:>4}' + \
@@ -720,6 +712,36 @@ class Scene(pandas.DataFrame):
                    f'{atom.x:>8.3f}{atom.y:>8.3f}{atom.z:>8.3f}' + ' ' * 22 + f'{atom.element:2}' + ' ' * 2
             assert len(line) == 80, f'An item in the atom table is longer than expected\n{line}'
             lines += line + '\n'
+        return lines
+
+    def write_pdb(self, file_name=None, verbose=False):
+        """
+        Serialize to PDB.
+
+        If multi-frame coordinates have been attached (see
+        :meth:`set_coordinate_frames`), each frame is written as a separate
+        ``MODEL`` block — the result is a standard multi-model PDB that
+        PyMOL/VMD/ChimeraX load as an animatable trajectory. Single-frame
+        scenes produce a plain ATOM table with no ``MODEL`` records.
+        """
+        # TODO Add connectivity output
+        if verbose:
+            print(f"Writing pdb file ({len(self)} atoms): {file_name}")
+
+        if 'coordinate_frames' in self._meta:
+            frames = self.get_coordinate_frames()
+            chunks = []
+            scratch = self.copy(deep=True)
+            scratch._meta.pop('coordinate_frames', None)
+            for i, frame in enumerate(frames):
+                scratch.set_coordinates(frame)
+                chunks.append(f'MODEL     {i + 1:>4d}\n')
+                chunks.append(scratch._format_pdb_atoms())
+                chunks.append('ENDMDL\n')
+            chunks.append('END\n')
+            lines = ''.join(chunks)
+        else:
+            lines = self._format_pdb_atoms()
 
         if file_name is None:
             return io.StringIO(lines)

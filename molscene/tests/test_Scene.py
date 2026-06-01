@@ -376,6 +376,34 @@ def test_iterframes(scene_with_trajectory):
         count += 1
     assert count == scene.n_frames, "iterframes() should yield exactly n_frames scenes."
 
+
+def test_write_pdb_multiframe_emits_model_blocks(tmp_path):
+    """Multi-frame coordinates should serialize as a multi-model PDB."""
+    s = Scene.from_pdb('molscene/data/1zir.pdb')
+    coords = s.get_coordinates().to_numpy()
+    frames = np.stack([coords, coords + [5, 0, 0], coords + [10, 0, 0]], axis=0)
+    ms = s.copy()
+    ms.set_coordinate_frames(frames)
+    out = tmp_path / 'movie.pdb'
+    ms.write_pdb(out)
+    text = out.read_text()
+    assert text.count('MODEL ') == 3
+    assert text.count('ENDMDL') == 3
+    assert text.rstrip().endswith('END')
+
+
+def test_write_pdb_preserves_multiple_chains(tmp_path):
+    """Regression: write_pdb must not collapse all chains based on the
+    ``molecule`` column (which from_pdb initialises to a single value)."""
+    s = Scene.from_pdb('molscene/data/1zbl.pdb')
+    chains_before = sorted(s['chain'].unique())
+    assert len(chains_before) > 1, "fixture must have >1 chain to exercise the bug"
+    out = tmp_path / 'roundtrip.pdb'
+    s.write_pdb(out)
+    s2 = Scene.from_pdb(out)
+    assert sorted(s2['chain'].unique()) == chains_before
+
+
 def test_distance_map():
     import numpy as np
     from molscene import Scene
