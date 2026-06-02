@@ -44,6 +44,7 @@ htmlcov/
 .pytest_cache
 nosetests.xml
 coverage.xml
+coverage.json
 *.cover
 .hypothesis/
 
@@ -101,6 +102,9 @@ ENV/
 *.iws
 *.ipr
 
+# VSCode settings
+.vscode/
+
 # Ignore Sublime Text settings
 *.sublime-workspace
 *.sublime-project
@@ -122,4 +126,8 @@ ENV/
 */_version.py
 # Cookiecutter-CMS Test Artifacts
 /tests/CI_files
+
+# Local scratch / experiment area (not shipped, not tracked)
 scratch
+/scratch/
+nohup.out

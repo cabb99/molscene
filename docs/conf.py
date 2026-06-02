@@ -27,10 +27,10 @@ copyright = ("2025, Carlos Bueno. Project structure based on the "
              "Computational Molecular Science Python Cookiecutter version 1.10")
 author = 'Carlos Bueno'
 
-# The short X.Y version
-version = ''
 # The full version, including alpha/beta/rc tags
-release = ''
+release = molscene.__version__
+# The short X.Y version
+version = release.split('+')[0]
 
 
 # -- General configuration ---------------------------------------------------
@@ -45,13 +45,14 @@ release = ''
 extensions = [
     'sphinx.ext.autosummary',
     'sphinx.ext.autodoc',
+    'sphinx.ext.doctest',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
     'sphinx.ext.intersphinx',
     'sphinx.ext.extlinks',
     'sphinx_design',
-    'sphinx_copybutton',    
+    'sphinx_copybutton',
 ]
 
 
@@ -59,6 +60,20 @@ autosummary_generate = True
 napoleon_google_docstring = False
 napoleon_use_param = False
 napoleon_use_ivar = True
+
+# Don't fail the build on a class that can't import an optional dependency.
+autodoc_mock_imports = ['molselect']
+autodoc_default_options = {
+    'member-order': 'bysource',
+}
+
+# Resolve cross-references to the scientific Python stack.
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+    'numpy': ('https://numpy.org/doc/stable/', None),
+    'scipy': ('https://docs.scipy.org/doc/scipy/', None),
+    'pandas': ('https://pandas.pydata.org/docs/', None),
+}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -77,7 +92,7 @@ master_doc = 'index'
 #
 # This is also used if you do content translation via gettext catalogs.
 # Usually you set "language" from the command line for these cases.
-language = None
+language = 'en'
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.

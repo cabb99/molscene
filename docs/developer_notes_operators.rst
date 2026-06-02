@@ -116,7 +116,7 @@ behave identically to their Python-operator counterparts.
   * A ``pandas.Series`` with **exactly** the index ``['x','y','z']``.
 * **Invalid vector** inputs (wrong length or wrong Series index) raise:
 
-  .. code-block:: python
+  .. code-block:: text
 
      ValueError: Cannot interpret {other!r} as a 3-vector
 
@@ -125,7 +125,7 @@ behave identically to their Python-operator counterparts.
   * **Supported**: ``scene + scene`` (concatenate), ``scene - scene`` (prune).
   * **Unsupported**: all other arithmetic combinations (``scene * scene``, ``scene / scene``, etc.) raise:
 
-    .. code-block:: python
+    .. code-block:: text
 
        ValueError: Cannot interpret {scene!r} as a 3-vector
 

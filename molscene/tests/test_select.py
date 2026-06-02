@@ -1,12 +1,23 @@
 """
 Tests for :meth:`Scene.select` and its molselect-backed string selection.
+
+String selection is powered by the optional ``molselect`` package
+(``pip install molscene[selection]``). Tests that rely on it are skipped when
+it is not installed; the kwargs-based selection path is pure pandas and always
+runs.
 """
 
+import importlib.util
 from pathlib import Path
 
 import pytest
 
 from molscene import Scene
+
+requires_molselect = pytest.mark.skipif(
+    importlib.util.find_spec("molselect") is None,
+    reason="optional dependency 'molselect' not installed (pip install molscene[selection])",
+)
 
 
 @pytest.fixture(scope="module")
@@ -19,6 +30,7 @@ class TestSelect:
         out = jge.select()
         assert len(out) == len(jge)
 
+    @requires_molselect
     def test_string_selection_round_trip(self, jge):
         out = jge.select("chain A and resid 50 to 55 and name CA")
         # Independently filter via kwargs; molselect's range is inclusive on both ends.
@@ -32,6 +44,7 @@ class TestSelect:
         assert (out["name"] == "CA").all()
         assert (out["chain"] == "A").all()
 
+    @requires_molselect
     def test_boolean_combinators(self, jge):
         out = jge.select("(name CA or name CB) and resid 50 to 60")
         expected = jge[
@@ -40,6 +53,7 @@ class TestSelect:
         ]
         assert len(out) == len(expected) > 0
 
+    @requires_molselect
     def test_within_distance_selection(self, jge):
         # Atoms within 3 Å of any water oxygen.
         out = jge.select("within 3 of resname HOH")
@@ -48,6 +62,7 @@ class TestSelect:
         # in the result.
         assert (out["resname"] == "HOH").any()
 
+    @requires_molselect
     def test_combine_selstr_and_kwargs(self, jge):
         # Use selstr for atom-name + kwargs for chain — the and-merge keeps
         # both filters applied.
@@ -61,12 +76,14 @@ class TestSelect:
         expected = jge[(jge["chain"] == "A") & (jge["name"] == "CA")]
         assert len(out) == len(expected) > 0
 
+    @requires_molselect
     def test_metadata_preserved(self, jge):
         s = jge.copy()
         s.author = "alice"
         out = s.select("chain A and name CA")
         assert out.author == "alice"
 
+    @requires_molselect
     def test_invalid_selection_raises(self, jge):
         with pytest.raises(Exception):
             jge.select("this is not a valid molselect expression")

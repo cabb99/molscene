@@ -17,7 +17,29 @@ license-files = ["LICENSE"]
 
 # See https://pypi.org/classifiers/
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+keywords = [
+    "molecular structure",
+    "PDB",
+    "mmCIF",
+    "pandas",
+    "structural biology",
+    "molecular dynamics",
+    "alignment",
+    "computational chemistry",
 ]
 requires-python = ">=3.8"
 # Declare any run-time dependencies that should be installed with the package.
@@ -25,21 +47,29 @@ dependencies = [
     "pandas>=1.3.3",
     "numpy>=1.21.0",
     "scipy>=1.10",
-    "lark>=1.2.2",
-    "molselect>=0.1",
 ]
 
-#    "importlib-resources;python_version<'3.10'",
-#]
-
-# Update the urls once the hosting is set up.
-#[project.urls]
-#"Source" = "https://github.com/<username>/molscene/"
-#"Documentation" = "https://molscene.readthedocs.io/"
+[project.urls]
+"Homepage" = "https://github.com/cabb99/molscene"
+"Source" = "https://github.com/cabb99/molscene"
+"Documentation" = "https://molscene.readthedocs.io/"
+"Issues" = "https://github.com/cabb99/molscene/issues"
 
 [project.optional-dependencies]
+# String atom selection (Scene.select("chain A and ...")) is powered by
+# molselect. The kwargs form (Scene.select(chain=["A"])) needs no extras.
+selection = [
+  "molselect>=0.1",
+]
 test = [
   "pytest>=6.1.2",
+  "pytest-cov",
+]
+docs = [
+  "sphinx>=5",
+  "pydata-sphinx-theme",
+  "sphinx-design",
+  "sphinx-copybutton",
 ]
 
 [tool.setuptools]

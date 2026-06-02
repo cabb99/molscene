@@ -1,6 +1,14 @@
 MolScene Roadmap
 ===============================================
 
+.. admonition:: Forward-looking
+   :class: note
+
+   This page is an **aspirational roadmap**, not a description of the current
+   code. The module layout and features below (``core.py``, an ``io/`` factory,
+   ``export/`` adapters, a plugin system, …) are proposed directions. For how
+   MolScene is actually built today, see the :doc:`developer_guide`.
+
 Overview
 --------
 

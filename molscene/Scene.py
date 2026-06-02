@@ -27,10 +27,17 @@ def _molselect_evaluator():
     """
     global _MOLSELECT_EVALUATOR
     if _MOLSELECT_EVALUATOR is None:
-        from molselect.python.evaluator import Evaluator
-        from molselect.python.backends.pandas import PandasStructure
-        from molselect.python.parser import SelectionParser
-        from molselect.python.builder import ASTBuilder
+        try:
+            from molselect.python.evaluator import Evaluator
+            from molselect.python.backends.pandas import PandasStructure
+            from molselect.python.parser import SelectionParser
+            from molselect.python.builder import ASTBuilder
+        except ImportError as exc:  # pragma: no cover - exercised without the optional dep
+            raise ImportError(
+                "String atom selection requires the optional 'molselect' package. "
+                "Install it with:  pip install molscene[selection]  "
+                "(kwargs-based Scene.select(col=values) works without it)."
+            ) from exc
         parser = SelectionParser()
         builder = ASTBuilder(parser)
         _MOLSELECT_EVALUATOR = Evaluator(PandasStructure, parser=parser, builder=builder)
@@ -1178,7 +1185,7 @@ class Scene(pandas.DataFrame):
         Compute the rigid-body :class:`Transformation` that least-squares
         superposes ``self`` onto ``reference``.
 
-        Subset fitting is done by composing :meth:`select` with this method:
+        Subset fitting is done by composing :meth:`select` with this method::
 
             T = scene.select("name CA").compute_transformation(
                     ref.select("name CA"))
@@ -1266,10 +1273,14 @@ class Scene(pandas.DataFrame):
 
     def distance_map_sparse(self, threshold: float) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Fast, memory-light “sparse” distances ≤ threshold.
-        Returns:
-            - pairs: (M, 2) array of index pairs [i, j]
-            - dists: (M,) array of corresponding distances
+        Fast, memory-light "sparse" distances ≤ threshold.
+
+        Returns
+        -------
+        pairs : numpy.ndarray
+            ``(M, 2)`` array of index pairs ``[i, j]``.
+        dists : numpy.ndarray
+            ``(M,)`` array of corresponding distances.
         """
         if threshold is None:
             raise ValueError("Must supply a threshold for sparse distance_map")
@@ -1445,7 +1456,8 @@ class Scene(pandas.DataFrame):
     @property
     def _constructor(self):
         def _create_scene_if_complete(particles, *args, **kwargs):
-            if all([col in particles.columns for col in self._columns.keys()]):
+            cols = getattr(particles, 'columns', None)
+            if cols is not None and all(col in cols for col in self._columns.keys()):
                 return Scene(particles, *args, infer_columns=False, **kwargs)
             else:
                 return pandas.DataFrame(particles, *args, **kwargs)

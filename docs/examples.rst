@@ -107,7 +107,7 @@ The metadata in MolScene is intrinsically linked to each Scene object.
 When you create a sub-scene through selection or filtering, the associated metadata is automatically inherited by the resulting sub-scene.
 The metadata dictionary can store a wide range of objects, including other DataFrames, dictionaries, or any custom Python objects you wish to associate with the scene.
 If your DataFrame includes columns that are indexed to the original DataFrame, this metadata will be preserved during selection or filtering operations.
-To ensure that a column is recognized as metadata, its name should begin with the prefix index_. 
+To ensure that a column is recognized as metadata, its name should begin with the prefix ``index_``.
 This convention is particularly useful for storing information such as bonds, angles, or other properties that may be associated with multiple atoms within the scene.
 
 .. code-block:: python

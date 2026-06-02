@@ -6,12 +6,18 @@
 Welcome to MolScene's documentation!
 =========================================================
 
-.. grid:: 1 1 2 2
+**Molecular structures as pandas DataFrames.** MolScene loads, manipulates, and
+writes molecular structure files (PDB, mmCIF, GRO) as
+:class:`pandas.DataFrame` objects, adding atom selection, rigid-body
+transformations and alignment, residue morphing, multi-frame trajectories, and
+distance maps on top of a familiar tabular interface.
+
+.. grid:: 1 1 3 3
 
     .. grid-item-card:: Getting Started
       :margin: 0 3 0 0
-      
-      Learn the basics of using MolScene.
+
+      Install MolScene and learn the basics.
 
       .. button-link:: ./getting_started.html
          :color: primary
@@ -20,12 +26,12 @@ Welcome to MolScene's documentation!
 
          To the Getting Started Guide
 
-      
+
 
     .. grid-item-card::  User Guide
       :margin: 0 3 0 0
-      
-      An in-depth guide for users.
+
+      Every feature in depth, with the full API reference.
 
       .. button-link:: ./user_guide.html
          :color: primary
@@ -33,27 +39,13 @@ Welcome to MolScene's documentation!
          :expand:
 
          To the User Guide
-      
-      
 
-    .. grid-item-card:: API Reference
-      :margin: 0 3 0 0
-      
-      How to use the API of MolScene.
 
-      .. button-link:: ./api.html
-         :color: primary
-         :outline:
-         :expand:
-
-         To the API Reference.
-
-      
 
     .. grid-item-card::  Developer Guide
       :margin: 0 3 0 0
-      
-      How to contribute to MolScene.
+
+      Design decisions and internals.
 
       .. button-link:: ./developer_guide.html
          :color: primary
@@ -70,6 +62,6 @@ Welcome to MolScene's documentation!
 
    getting_started
    user_guide
-   api
+   examples
    developer_guide
 
