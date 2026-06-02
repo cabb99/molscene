@@ -29,6 +29,16 @@ def pdbfile():
 def ciffile():
     return Path('molscene/data/1zir.cif')
 
+@pytest.fixture
+def dsspfile():
+    """Precomputed DSSP output (mkdssp mmCIF) for the 1zir fixture.
+
+    Generated once via ``Scene.from_cif('1zir.cif').write_cif(tmp)`` ->
+    ``mkdssp --calculate-accessibility tmp 1zir.dssp.cif`` so the residue
+    numbering merges with the scene; lets the DSSP test run without mkdssp.
+    """
+    return Path('molscene/data/1zir.dssp.cif')
+
 def test_Scene_exists():
     Scene
 
@@ -172,9 +182,11 @@ def test_compute_mass(pdbfile):
     assert (s_mass['mass'] > 0).all()
 
 
-def test_compute_secondary_structure(ciffile):
+def test_compute_secondary_structure(ciffile, dsspfile):
     s = Scene.from_cif(ciffile)
-    result = s.compute_secondary_structure()
+    # Use the committed precomputed DSSP output so this test does not depend on
+    # the external `mkdssp` binary being installed (e.g. on CI).
+    result = s.compute_secondary_structure(dssp_file=dsspfile)
     # Row count should be preserved (one SS per residue, broadcast to all atoms)
     assert len(result) == len(s)
     # secondary_structure column should be present

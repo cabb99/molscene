@@ -245,24 +245,52 @@ class Scene(pandas.DataFrame):
             Warning("Mass column already exists, skipping.")
         return out
 
-    def compute_secondary_structure(self, **kwargs):
+    def compute_secondary_structure(self, dssp_file=None, **kwargs):
         """
-        Calculate secondary structure using DSSP.
+        Annotate each residue with its DSSP secondary structure.
+
+        Parameters
+        ----------
+        dssp_file : str or path-like, optional
+            Path to a precomputed DSSP mmCIF (the output of ``mkdssp``,
+            containing the ``_dssp_struct_summary`` category). When given, the
+            file is parsed directly and no external tool is run — useful for
+            reproducibility and for environments without DSSP installed. When
+            omitted, ``mkdssp`` is run on this scene, which requires the
+            ``mkdssp`` executable on ``PATH``.
+
+        Returns
+        -------
+        Scene
+            A copy of the scene with the DSSP columns (notably
+            ``secondary_structure`` and ``accessibility``) merged in per
+            residue.
+
+        Notes
+        -----
+        A precomputed file must be generated from this scene's coordinates
+        (DSSP reads the ``label_seq_id`` numbering written by
+        :meth:`write_cif`), so it round-trips through ``write_cif`` → ``mkdssp``.
         """
-        import subprocess
-        try:
-            subprocess.call(['mkdssp', '--version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except FileNotFoundError:
-            raise FileNotFoundError("DSSP is not installed or not found in PATH.")
+        if dssp_file is None:
+            import subprocess
+            try:
+                subprocess.call(['mkdssp', '--version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except FileNotFoundError:
+                raise FileNotFoundError(
+                    "DSSP is not installed or not found in PATH. Install `mkdssp` "
+                    "or pass a precomputed DSSP file via `dssp_file=`."
+                )
 
-        # Use DSSP to calculate secondary structure
-        with tempfile.NamedTemporaryFile('w+', suffix='.cif', delete=False) as dsspout:
-            with tempfile.NamedTemporaryFile('w+', suffix='.cif', delete=False) as tmp:
-                #Run dssp
-                self.write_cif(tmp.name)
-                subprocess.call(['mkdssp', '--calculate-accessibility', tmp.name, dsspout.name])
+            # Use DSSP to calculate secondary structure into a temporary mmCIF.
+            with tempfile.NamedTemporaryFile('w+', suffix='.cif', delete=False) as dsspout:
+                with tempfile.NamedTemporaryFile('w+', suffix='.cif', delete=False) as tmp:
+                    #Run dssp
+                    self.write_cif(tmp.name)
+                    subprocess.call(['mkdssp', '--calculate-accessibility', tmp.name, dsspout.name])
+            dssp_file = dsspout.name
 
-        dssp_df = _read_cif_category(dsspout.name, '_dssp_struct_summary')
+        dssp_df = _read_cif_category(dssp_file, '_dssp_struct_summary')
 
         # Rename columns to pdb convention
         _dssp_rename = {'label_comp_id': 'resname',

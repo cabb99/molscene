@@ -111,18 +111,21 @@ Sequence, mass, and secondary structure
     scene  = scene.compute_mass()       # returns a copy with a 'mass' column
     scene["mass"].sum()                 # e.g. total mass
 
-:meth:`~molscene.Scene.compute_secondary_structure` shells out to DSSP and
-returns a copy of the scene with the DSSP assignment merged in per residue:
+:meth:`~molscene.Scene.compute_secondary_structure` returns a copy of the scene
+with the DSSP assignment merged in per residue (``secondary_structure``,
+``accessibility``, …):
 
 .. code-block:: python
 
-    scene = scene.compute_secondary_structure()
+    scene = scene.compute_secondary_structure()                  # runs mkdssp
+    scene = scene.compute_secondary_structure(dssp_file="x.cif")  # precomputed
 
 .. note::
 
-   Secondary-structure assignment requires the external ``mkdssp`` (DSSP)
-   executable on your ``PATH``; install it separately (e.g. via conda-forge's
-   ``dssp`` package). Without it the call raises :class:`FileNotFoundError`.
+   Computing the assignment requires the external ``mkdssp`` (DSSP) executable
+   on your ``PATH`` (install e.g. via conda-forge's ``dssp`` package); without
+   it the call raises :class:`FileNotFoundError`. To avoid the dependency you
+   can pass ``dssp_file=`` pointing at a precomputed ``mkdssp`` mmCIF output.
 
 Coordinate operators
 ---------------------

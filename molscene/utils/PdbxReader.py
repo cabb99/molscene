@@ -409,13 +409,13 @@ class PdbxReader(object):
         mmcifRe = re.compile(
             r"(?:"
 
-             "(?:_(.+?)[.](\S+))"               "|"  # _category.attribute
+             r"(?:_(.+?)[.](\S+))"              "|"  # _category.attribute
 
-             "(?:['\"](.*?)(?:['\"]\s|['\"]$))" "|"  # quoted strings
+             "(?:['\"](.*?)(?:['\"]\\s|['\"]$))" "|"  # quoted strings
 
-             "(?:\s*#.*$)"                      "|"  # comments (dumped)
+             r"(?:\s*#.*$)"                     "|"  # comments (dumped)
 
-             "(\S+)"                                 # unquoted words
+             r"(\S+)"                                # unquoted words
 
              ")")
 

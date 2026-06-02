@@ -275,4 +275,5 @@ Tips & tricks
       True
 
 * **Secondary structure** (:meth:`~molscene.Scene.compute_secondary_structure`)
-  requires the external ``mkdssp`` executable on your ``PATH``.
+  runs the external ``mkdssp`` executable, or reads a precomputed ``mkdssp``
+  mmCIF output when you pass ``dssp_file=``.
