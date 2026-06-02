@@ -229,6 +229,7 @@ def test_metadata():
     assert s['x'][0] == 3
 
 def test_from_fixPDB(pdbfile):
+    pytest.importorskip("pdbfixer")
     s = Scene.from_fixPDB(pdbfile)
     assert len(s) == 2849
     sel = s[(s['name'] == 'SD') & (s['resid'] == 1170)]
@@ -242,7 +243,7 @@ def test_from_fixPDB(pdbfile):
     assert atom['chain'] == 'A'
 
 def test_from_fixer(pdbfile):
-    import pdbfixer
+    pdbfixer = pytest.importorskip("pdbfixer")
     fixer = pdbfixer.PDBFixer(filename=str(pdbfile))
     fixer.findMissingResidues()
     fixer.removeHeterogens(keepWater=False)
