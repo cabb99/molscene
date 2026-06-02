@@ -6,7 +6,7 @@
 
 **Molecular structures as pandas DataFrames.**
 
-MolScene loads, manipulates, and writes molecular structure files (PDB, mmCIF, GRO) as [pandas](https://pandas.pydata.org/) DataFrames. Every `Scene` is a DataFrame so the full pandas toolbox (filtering, grouping, plotting, `to_csv`, etc.) works out of the box. MolScene adds a layer on top for molecular structural data operations: atom selection, rigid-body transformations and alignment, residue morphing, multi-frame trajectories, and distance maps.
+MolScene reads molecular structures (PDB, mmCIF) into [pandas](https://pandas.pydata.org/) DataFrames and writes them back out (PDB, mmCIF, GRO). Every `Scene` is a DataFrame so the full pandas toolbox (filtering, grouping, plotting, `to_csv`, etc.) works out of the box. MolScene adds a layer on top for molecular structural data operations: atom selection, rigid-body transformations and alignment, residue morphing, multi-frame trajectories, and distance maps.
 
 ```python
 from molscene import Scene
@@ -69,10 +69,10 @@ shifted  = s + np.array([10, 0, 0])
 scaled   = s * 2.0
 
 # Align one structure onto another and measure RMSD
-mobile = Scene.from_pdb("model.pdb")     # doctest: +SKIP
-ref    = Scene.from_pdb("native.pdb")    # doctest: +SKIP
-aligned = mobile.superpose(ref, match="sequence")   # doctest: +SKIP
-print(aligned.rmsd(ref, match="sequence"))           # doctest: +SKIP
+mobile = Scene.from_pdb("model.pdb")
+ref    = Scene.from_pdb("native.pdb")
+aligned = mobile.superpose(ref, match="sequence")
+print(aligned.rmsd(ref, match="sequence"))
 
 # Write back out (format from extension)
 centered.write_pdb("centered.pdb")

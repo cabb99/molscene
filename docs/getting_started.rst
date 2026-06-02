@@ -36,8 +36,8 @@ First steps
 
 Load a structure. The format is taken from the file extension by
 :meth:`~molscene.Scene.from_file`, or you can call the explicit readers
-:meth:`~molscene.Scene.from_pdb`, :meth:`~molscene.Scene.from_cif`, or
-:meth:`~molscene.Scene.from_gro`:
+:meth:`~molscene.Scene.from_pdb` or :meth:`~molscene.Scene.from_cif`
+(MolScene currently reads PDB and mmCIF):
 
 .. code-block:: python
 

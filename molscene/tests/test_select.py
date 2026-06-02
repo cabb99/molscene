@@ -7,17 +7,15 @@ it is not installed; the kwargs-based selection path is pure pandas and always
 runs.
 """
 
-import importlib.util
 from pathlib import Path
 
 import pytest
 
 from molscene import Scene
 
-requires_molselect = pytest.mark.skipif(
-    importlib.util.find_spec("molselect") is None,
-    reason="optional dependency 'molselect' not installed (pip install molscene[selection])",
-)
+# Shared marker (defined in molscene/tests/conftest.py) auto-skips these when
+# the optional `molselect` dependency is not installed.
+requires_molselect = pytest.mark.requires_molselect
 
 
 @pytest.fixture(scope="module")

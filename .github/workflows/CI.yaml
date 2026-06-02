@@ -65,7 +65,10 @@ jobs:
       # conda setup requires this special shell
       shell: bash -l {0}
       run: |
-        pytest -v --cov=molscene --cov-report=xml --color=yes molscene/tests/
+        # Also run the documentation snippets as doctests (docs/*.rst) so the
+        # examples are verified and protected from regression. They are written
+        # to not require the optional `molselect` dependency.
+        pytest -v --cov=molscene --cov-report=xml --color=yes molscene/tests/ docs/
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5

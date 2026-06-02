@@ -61,6 +61,13 @@ napoleon_google_docstring = False
 napoleon_use_param = False
 napoleon_use_ivar = True
 
+# The documentation snippets (``>>>`` blocks) are executed by pytest via
+# ``--doctest-glob="*.rst"`` (see docs/conftest.py for the shared namespace),
+# which is the single source of truth for doctests. Disable the Sphinx doctest
+# builder's automatic collection of those blocks so it does not run them a
+# second time with a different (empty) namespace.
+doctest_test_doctest_blocks = ''
+
 # Don't fail the build on a class that can't import an optional dependency.
 autodoc_mock_imports = ['molselect']
 autodoc_default_options = {

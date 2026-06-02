@@ -5,260 +5,274 @@ MolScene Usage Examples
    :local:
    :depth: 2
 
+Every ``>>>`` snippet on this page is executed by the test suite
+(``pytest --doctest-glob="*.rst"``), so the examples are guaranteed to work
+against the current code.
 
-1. Creating and Inspecting a Scene
+.. note::
+
+   Two names appear in the file-based examples below: ``example_structure`` is
+   the path to a small PDB shipped with the MolScene source, and ``workdir`` is
+   a throwaway directory for any files written. In your own code replace them
+   with your structure's path and wherever you want output to go.
+
+
+1. Creating and inspecting a Scene
 ----------------------------------
 
-A 'Scene' can be created from a numpy array or a pandas DataFrame. 
-The array should be of shape (N,3) for N atoms, and the DataFrame should have columns 'x', 'y', and 'z' for coordinates.
+A ``Scene`` can be created from an ``(N, 3)`` array of coordinates or from a
+DataFrame with ``x``, ``y``, ``z`` columns. It *is* a DataFrame, so it has a
+row per atom and the usual structural columns.
 
 .. code-block:: python
 
     >>> import numpy as np
     >>> from molscene import Scene
-    >>> coords = np.array([[0,0,0],[1,0,0],[0,1,0]])
+    >>> coords = np.array([[0., 0, 0], [2, 0, 0], [0, 2, 0]])
     >>> scene = Scene(coords)
     >>> len(scene)
     3
     >>> scene.get_coordinates().shape
     (3, 3)
-    >>> scene
-    <Scene (3)>
-       x  y  z chain  resid  ... beta resname  fragment residue index
-    0  0  0  0     A      1  ...  1.0                 0       0     0
-    1  1  0  0     A      1  ...  1.0                 0       0     1
-    2  0  1  0     A      1  ...  1.0                 0       0     2
-    <BLANKLINE>
-    [3 rows x 16 columns]
+    >>> {"chain", "resid", "name", "x", "y", "z"} <= set(scene.columns)
+    True
+
+
+2. Reading and writing files
+-----------------------------
+
+MolScene reads PDB and mmCIF files and writes PDB, mmCIF, and GRO.
+:meth:`~molscene.Scene.from_file` / :meth:`~molscene.Scene.to_file` pick the
+format from the extension.
 
 .. code-block:: python
 
-    >>> import pandas as pd
     >>> from molscene import Scene
-    >>> df = pd.DataFrame([[0,0,0],[1,0,0],[0,1,0]], columns=['x','y','z'])
-    >>> scene2 = Scene(df)
-    >>> len(scene)
+    >>> protein = Scene.from_pdb(example_structure).select(model=[1])
+    >>> len(protein) > 0
+    True
+
+    >>> # write a few formats into the scratch directory
+    >>> pdb_out = workdir / "out.pdb"
+    >>> protein.write_pdb(pdb_out)
+    >>> pdb_out.exists()
+    True
+    >>> protein.to_file(str(workdir / "out.cif"))   # format from the extension
+    >>> protein.write_gro(workdir / "out.gro")
+    >>> (workdir / "out.gro").exists()
+    True
+
+    >>> # round-trip preserves the atom count
+    >>> reloaded = Scene.from_pdb(pdb_out)
+    >>> len(reloaded) == len(protein)
+    True
+
+You can also dump the table with the inherited pandas ``to_csv``:
+
+.. code-block:: python
+
+    >>> protein.to_csv(workdir / "atoms.csv", index=False)
+    >>> (workdir / "atoms.csv").exists()
+    True
+
+
+3. Atom selection
+-----------------
+
+Keyword filters keep rows whose column matches any of the given values and need
+no extra dependency:
+
+.. code-block:: python
+
+    >>> chain_a = protein.select(chain=["A"])
+    >>> bool((chain_a["chain"] == "A").all())
+    True
+    >>> ca = protein.select(name=["CA"])
+    >>> bool((ca["name"] == "CA").all())
+    True
+
+A non-empty selection *string* uses the full VMD-style grammar via the optional
+`molselect <https://github.com/cabb99/molselect>`_ package
+(``pip install "molscene[selection]"``):
+
+.. code-block:: python
+
+    pocket = protein.select("protein and within 5 of resname HOH")
+    backbone = protein.select("name CA C N O and not hydrogen")
+
+
+4. Geometry with operators
+---------------------------
+
+Arithmetic operators act atom-wise on coordinates and preserve metadata:
+
+.. code-block:: python
+
+    >>> import numpy as np
+    >>> s = Scene(np.array([[0., 0, 0], [2, 0, 0], [0, 2, 0]]))
+    >>> s.get_center().to_numpy().round(3).tolist()
+    [0.667, 0.667, 0.0]
+
+    >>> centered = s - s.get_center()                 # move centroid to origin
+    >>> bool(np.allclose(centered.get_center().to_numpy(), 0))
+    True
+    >>> (s + np.array([1, 2, 3])).get_coordinates().iloc[0].to_numpy().tolist()
+    [1.0, 2.0, 3.0]
+    >>> (s * 2.0).get_coordinates().iloc[1].to_numpy().tolist()
+    [4.0, 0.0, 0.0]
+
+    >>> len(s + s)        # Scene + Scene concatenates atoms
+    6
+    >>> len(s - s)        # Scene - Scene removes shared atoms
+    0
+
+Rotations apply a 3×3 matrix (``rotate`` and ``dot`` are equivalent):
+
+.. code-block:: python
+
+    >>> Rz = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]], float)
+    >>> bool(np.allclose(s.rotate(Rz).get_coordinates().to_numpy(),
+    ...                   s.dot(Rz).get_coordinates().to_numpy()))
+    True
+
+
+5. Transformations
+------------------
+
+A :class:`~molscene.Transformation` is a rigid-body motion you can apply,
+invert, and compose:
+
+.. code-block:: python
+
+    >>> from molscene import Transformation
+    >>> T = Transformation.from_matrix(np.eye(3), [5, 0, 0])
+    >>> T.translation.tolist()
+    [5.0, 0.0, 0.0]
+    >>> moved = s.transform(T)
+    >>> bool(np.allclose(moved.get_coordinates().to_numpy(),
+    ...                  s.get_coordinates().to_numpy() + [5, 0, 0]))
+    True
+    >>> back = moved.transform(T.inverse())            # round-trip
+    >>> bool(np.allclose(back.get_coordinates().to_numpy(),
+    ...                  s.get_coordinates().to_numpy()))
+    True
+
+
+6. Structural alignment
+-----------------------
+
+Pair atoms with a :class:`~molscene.Matching` strategy, then superpose or
+measure RMSD. Here a displaced copy is aligned back onto the original:
+
+.. code-block:: python
+
+    >>> mobile = s.transform(Transformation.from_matrix(np.eye(3), [10, 0, 0]))
+    >>> aligned = mobile.superpose(s)                  # default: OrderMatching
+    >>> round(float(aligned.rmsd(s)), 6)
+    0.0
+    >>> T = mobile.compute_transformation(s)           # the fitted motion
+    >>> round(float(T.rmsd), 6)
+    0.0
+
+    >>> from molscene import OrderMatching
+    >>> a, b = OrderMatching().pair(mobile, s)
+    >>> len(a) == len(b) == len(s)
+    True
+
+
+7. Morphing a segment
+---------------------
+
+:meth:`~molscene.Scene.morph_segment` rigidly repositions each residue in a
+range by a transformation interpolated between two anchors:
+
+.. code-block:: python
+
+    >>> seg = Scene(np.array([[0., 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0]]))
+    >>> seg["resid"] = [1, 1, 2, 2]
+    >>> t0 = Transformation.identity()
+    >>> t1 = Transformation.from_matrix(np.eye(3), [0, 0, 5])
+    >>> morphed = seg.morph_segment("A", [1, 2], t0, t1)
+    >>> len(morphed) == len(seg)
+    True
+    >>> # residue 1 sits at alpha=0 (identity anchor) and is unchanged
+    >>> bool(np.allclose(morphed.select(resid=[1]).get_coordinates().to_numpy(),
+    ...                  seg.select(resid=[1]).get_coordinates().to_numpy()))
+    True
+
+
+8. Multi-frame coordinates
+--------------------------
+
+A single scene can carry a stack of coordinate frames:
+
+.. code-block:: python
+
+    >>> frames = np.stack([s.get_coordinates().to_numpy() + d for d in range(3)])
+    >>> frames.shape
+    (3, 3, 3)
+    >>> s.set_coordinate_frames(frames)
+    >>> s.n_frames
     3
-    >>> scene.get_coordinates().shape
-    (3, 3)
-    >>> scene
-    <Scene (3)>
-       x  y  z chain  resid  ... beta resname  fragment residue index
-    0  0  0  0     A      1  ...  1.0                 0       0     0
-    1  1  0  0     A      1  ...  1.0                 0       0     1
-    2  0  1  0     A      1  ...  1.0                 0       0     2
-    <BLANKLINE>
-    [3 rows x 16 columns]
-
-2. File I/O
------------
-
-Reading
-~~~~~~~
-You can read PDB, mmCIF, and GRO files. The ``Scene.from_file()`` method will automatically detect the file type.
-
-.. code-block:: python
-
-    >>> from molscene import Scene
-    >>> scene_pdb  = Scene.from_pdb('1abc.pdb')  # doctest: +SKIP
-    >>> scene_cif  = Scene.from_cif('1abc.cif')  # doctest: +SKIP
-    >>> scene_fix  = Scene.from_fixPDB(pdbfile='1abc.pdb')  # doctest: +SKIP
-    >>> scene_auto = Scene.from_file('1abc.pdb')  # doctest: +SKIP
-
-Writing
-~~~~~~~
-You can write to PDB, mmCIF, and GRO files. The ``Scene.to_file()`` method will automatically detect the file type.
-
-.. code-block:: python
-
-    >>> scene_pdb.to_file('out.pdb')   # doctest: +SKIP
-    >>> scene_cif.to_file('out.cif')   # doctest: +SKIP
-    # .gro once available
-
-Also, you can use the ``.to_csv()`` method to write to a CSV file. This is useful for exporting data in a tabular format that can be easily read by other programs or libraries.
-
-.. code-block:: python
-
-    >>> scene.to_csv('atoms.csv', index=False)  # doctest: +SKIP
+    >>> [len(frame) for frame in s.iterframes()]
+    [3, 3, 3]
 
 
-3. Metadata Handling
---------------------
-
-Every ``Scene`` has a private ``_meta`` dict you can read or write via attributes:
-
-.. code-block:: python
-
-    >>> from molscene import Scene
-    >>> scene = Scene(np.array([[0,0,0],[1,0,0],[0,1,0]]))
-    >>> scene._meta
-    {}
-    >>> scene.author = "CB"
-    >>> scene.description = "Test peptide"
-    >>> scene.author
-    'CB'
-    >>> scene._meta
-    {'author': 'CB', 'description': 'Test peptide'}
-    >>> sub = scene.select('chain A')
-    >>> sub.author
-    'CB'
-
-The metadata in MolScene is intrinsically linked to each Scene object. 
-When you create a sub-scene through selection or filtering, the associated metadata is automatically inherited by the resulting sub-scene.
-The metadata dictionary can store a wide range of objects, including other DataFrames, dictionaries, or any custom Python objects you wish to associate with the scene.
-If your DataFrame includes columns that are indexed to the original DataFrame, this metadata will be preserved during selection or filtering operations.
-To ensure that a column is recognized as metadata, its name should begin with the prefix ``index_``.
-This convention is particularly useful for storing information such as bonds, angles, or other properties that may be associated with multiple atoms within the scene.
-
-.. code-block:: python
-
-    ## TO BE IMPLEMENTED
-
-
-4. Merging and Splitting Scenes
--------------------------------
-
-Concatenation
-~~~~~~~~~~~~~
-
-Use the ``+`` operator (or ``.concatenate``) to stitch two scenes end-to-end:
-
-.. code-block:: python
-
-    >>> import numpy as np
-    >>> from molscene import Scene
-    >>> scene1 = Scene(np.random.rand(5,3))
-    >>> scene2 = Scene(np.random.rand(3,3)) * 2.0
-    >>> merged = scene1 + scene2
-    >>> len(merged)
-    8
-
-Under the hood, ``scene1 + scene2`` does a pandas-concat of the rows.
-
-Splitting by Chain (or any column)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-There’s no built-in ``.split_chains()``, but it’s easy:
-
-.. code-block:: python
-
-    >>> chains = merged['chainID'].unique()  # doctest: +SKIP
-    >>> by_chain = {c: merged.select(chainID=[c]) for c in chains}  # doctest: +SKIP
-    >>> scenes = [merged.select(chainID=[c]) for c in chains]  # doctest: +SKIP
-
-Each sub-scene is a full ``Scene`` you can write out or transform independently.
-
-
-5. Geometric Transforms & Operators
------------------------------------
-
-Translation
-~~~~~~~~~~~
-
-The ``+`` and ``-`` operators also work as vector translations:
-
-.. code-block:: python
-
-    >>> moved = scene + np.array([1,2,3])
-    >>> moved2 = scene.translate([1,2,3])
-
-Centering
-~~~~~~~~~
-
-There are multiple ways to center a Scene so that its centroid is at the origin:
-
-.. doctest::
-
-    >>> center = scene.get_center()
-    >>> centered = scene - center
-    >>> # or, equivalently
-    >>> centered = scene.center()
-
-All of these approaches will shift the coordinates so that the centroid is at (0, 0, 0).
-
-Scaling
-~~~~~~~
-
-Multiply by a scalar (or 3-vector) to scale:
-
-.. code-block:: python
-
-    >>> big = scene * 10.0
-    >>> squished = scene * np.array([1,1,0.5])
-
-Rotation
-~~~~~~~~
-
-Use ``.rotate()`` or ``.dot()`` with a 3×3 rotation matrix:
-
-.. code-block:: python
-
-    >>> import numpy as np
-    >>> theta = np.pi/2
-    >>> Rz = np.array([[np.cos(theta), -np.sin(theta), 0],
-    ...                [np.sin(theta),  np.cos(theta), 0],
-    ...                [0,              0,             1]])
-    >>> rotated = scene.rotate(Rz)
-    >>> rot2 = scene.dot(Rz)
-
-Center & Align Two Scenes
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Put ``scene2`` on top of ``scene1`` by matching centroids:
-
-.. code-block:: python
-
-    >>> c1 = scene1.get_coordinates().mean().to_numpy()
-    >>> c2 = scene2.get_coordinates().mean().to_numpy()
-    >>> aligned = scene2 - c2 + c1
-
-
-6. Distance Maps
+9. Distance maps
 ----------------
 
 .. code-block:: python
 
-    >>> D = scene.distance_map()
-    >>> pairs, dists = scene.distance_map_sparse(threshold=5.0)
+    >>> pts = Scene(np.array([[0., 0, 0], [3, 0, 0], [0, 4, 0]]))
+    >>> D = pts.distance_map()
+    >>> D.shape
+    (3, 3)
+    >>> bool(np.allclose(np.diag(D), 0))
+    True
+    >>> round(float(D[0, 1]), 1), round(float(D[0, 2]), 1)
+    (3.0, 4.0)
+    >>> pairs, dists = pts.distance_map_sparse(3.5)
+    >>> pairs.shape[1] == 2 and len(pairs) == len(dists)
+    True
 
 
-7. Putting It All Together: Example Workflow
---------------------------------------------
+10. Metadata travels with the data
+-----------------------------------
+
+Scene-level metadata is stored on the scene and inherited by sub-scenes:
 
 .. code-block:: python
 
-    >>> from molscene import Scene
-    >>> ligand = Scene(np.array([[0,0,0],[1,0,0],[0,1,0]]))
-    >>> protein = Scene(np.array([[0,0,0],[1,0,0],[0,1,0]]))
-    >>> ligand_c = ligand - ligand.get_coordinates().mean().to_numpy()
-    >>> protein_c = protein - protein.get_coordinates().mean().to_numpy()
-    >>> offset = np.array([0,0,10])
-    >>> ligand_pos = ligand_c + (protein_c.get_coordinates().mean().to_numpy() + offset)
-    >>> system = protein_c + ligand_pos
-    >>> system.author = "Carol B"
-    >>> system.pH = 7.4
+    >>> m = Scene(np.array([[0., 0, 0], [1, 0, 0]]))
+    >>> m.author = "CB"
+    >>> m.note = {"pH": 7.4}
+    >>> m.author
+    'CB'
+    >>> m.select(chain=["A"]).author        # preserved through selection
+    'CB'
 
 
-Tips & Tricks
+Tips & tricks
 -------------
 
-* **Per-atom metadata** (e.g. custom charges or flags) can simply be new columns:
+* **Per-atom metadata** is just a new column:
 
   .. code-block:: python
 
-      >>> scene['charge'] = np.array([0.1, 0.2, 0.3])
+      >>> m["charge"] = [0.1, -0.1]
+      >>> m["charge"].tolist()
+      [0.1, -0.1]
 
-* **Frame movies**: call ``scene.set_coordinate_frames(frames)``, then iterate:
-
-  .. code-block:: python
-
-      >>> for frame in scene.iterframes():  # doctest: +SKIP
-      ...     do_something(frame)
-
-* **Splitting by selection**: any keyword to ``.select()``—e.g. ``scene.select(resSeq=[10,20,30])``.
-
-* **Combining transforms**:
+* **Sequence and mass** helpers:
 
   .. code-block:: python
 
-      >>> new = (scene - center).rotate(Rz) * 2.0 + np.array([1,1,1])
+      >>> seq = protein.get_sequence()        # dict of one-letter sequences per chain
+      >>> "A" in seq
+      True
+      >>> with_mass = protein.compute_mass()  # copy with a 'mass' column
+      >>> float(with_mass["mass"].sum()) > 0
+      True
+
+* **Secondary structure** (:meth:`~molscene.Scene.compute_secondary_structure`)
+  requires the external ``mkdssp`` executable on your ``PATH``.

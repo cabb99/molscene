@@ -139,6 +139,7 @@ class TestCompute:
             atol=1e-7,
         )
 
+    @pytest.mark.requires_molselect
     def test_subset_fit_via_select_composition(self, jge, known_transform):
         # The documented pattern: pre-select, compute, then apply to whole scene.
         moved = jge.transform(known_transform)

@@ -2,8 +2,8 @@ User Guide
 ==========
 
 This guide covers MolScene feature by feature and ends with the complete
-:ref:`API reference <api-reference>`. For short, copy-paste recipes see
-:doc:`examples`.
+:ref:`API reference <api-reference>`. For short, runnable recipes — every one of
+which is executed as part of the test suite — see :doc:`examples`.
 
 .. contents:: On this page
    :local:
@@ -37,14 +37,19 @@ layer on top of that.
 Reading and writing files
 --------------------------
 
-MolScene reads PDB, mmCIF, and GRO files:
+MolScene reads PDB and mmCIF files:
 
 .. code-block:: python
 
     s_pdb  = Scene.from_pdb("structure.pdb")
     s_cif  = Scene.from_cif("structure.cif")
-    s_gro  = Scene.from_gro("structure.gro")
     s_auto = Scene.from_file("structure.cif")   # format from the extension
+
+.. note::
+
+   Reading GRO files (:meth:`~molscene.Scene.from_gro`) is not implemented yet
+   and raises :class:`NotImplementedError`; GRO *writing* is supported (see
+   below).
 
 If `PDBFixer <https://github.com/openmm/pdbfixer>`_ is installed, you can clean
 and protonate structures on the way in with
@@ -102,9 +107,22 @@ Sequence, mass, and secondary structure
 
 .. code-block:: python
 
-    seq    = scene.get_sequence()              # one-letter sequence per chain
-    masses = scene.compute_mass()              # per-atom masses from elements
-    ss     = scene.compute_secondary_structure()  # DSSP-style assignment
+    seq    = scene.get_sequence()       # one-letter sequence per chain
+    scene  = scene.compute_mass()       # returns a copy with a 'mass' column
+    scene["mass"].sum()                 # e.g. total mass
+
+:meth:`~molscene.Scene.compute_secondary_structure` shells out to DSSP and
+returns a copy of the scene with the DSSP assignment merged in per residue:
+
+.. code-block:: python
+
+    scene = scene.compute_secondary_structure()
+
+.. note::
+
+   Secondary-structure assignment requires the external ``mkdssp`` (DSSP)
+   executable on your ``PATH``; install it separately (e.g. via conda-forge's
+   ``dssp`` package). Without it the call raises :class:`FileNotFoundError`.
 
 Coordinate operators
 ---------------------
@@ -170,16 +188,21 @@ Any callable ``(mobile, reference) -> (Scene, Scene)`` also works via
     error   = aligned.rmsd(reference, match="sequence")
 
     # Or get the Transformation explicitly
-    T = mobile.compute_transformation(reference, match="column")
+    T = mobile.compute_transformation(reference, match="columns")
     moved = mobile.transform(T)
 
 Morphing
 --------
 
-:meth:`~molscene.Scene.morph_segment` interpolates a contiguous residue range
-between two end states, propagating a smooth twist through the segment using
-screw-linear (dual-quaternion) interpolation by default. It is useful for
-generating intermediate frames between two conformations of a flexible region.
+:meth:`~molscene.Scene.morph_segment` rigidly repositions each residue in a
+chain's ``resid_range`` by a :class:`~molscene.Transformation` interpolated
+between two anchors — ``t_start`` at the first residue and ``t_end`` at the
+last — propagating a smooth twist across the segment (screw-linear by default).
+Each residue moves as a rigid body; atoms outside the range are untouched.
+
+.. code-block:: python
+
+    morphed = scene.morph_segment("A", range(275, 341), t_start, t_end)
 
 Multi-frame coordinates
 ------------------------

@@ -405,6 +405,47 @@ def test_write_pdb_preserves_multiple_chains(tmp_path):
     assert sorted(s2['chain'].unique()) == chains_before
 
 
+# ---------------------------------------------------------------------------
+# Format auto-detection (from_file / to_file) — documented in the User Guide.
+# ---------------------------------------------------------------------------
+
+def test_from_file_autodetects_format():
+    """``from_file`` should dispatch on the extension for the supported readers."""
+    s_pdb = Scene.from_file('molscene/data/1zir.pdb')
+    s_cif = Scene.from_file('molscene/data/1zir.cif')
+    assert len(s_pdb) > 0
+    assert len(s_cif) > 0
+
+
+@pytest.mark.parametrize('ext', ['pdb', 'cif'])
+def test_to_file_autodetects_format(tmp_path, ext):
+    """``to_file`` should pick the writer from the extension and round-trip."""
+    s = Scene.from_pdb('molscene/data/1zir.pdb')
+    out = tmp_path / f'roundtrip.{ext}'
+    s.to_file(str(out))
+    assert out.exists()
+    assert len(Scene.from_file(str(out))) == len(s)
+
+
+def test_from_gro_not_implemented():
+    """GRO *reading* is documented as not yet implemented (writing works)."""
+    with pytest.raises(NotImplementedError):
+        Scene.from_gro('molscene/data/does_not_matter.gro')
+
+
+# ---------------------------------------------------------------------------
+# Centering helpers — documented operator equivalents.
+# ---------------------------------------------------------------------------
+
+def test_get_center_and_center():
+    s = Scene(pd.DataFrame([[0, 0, 0], [2, 0, 0], [0, 2, 0]],
+                           columns=['x', 'y', 'z']))
+    np.testing.assert_allclose(s.get_center().to_numpy(), [2 / 3, 2 / 3, 0])
+    # center() shifts the centroid to the origin
+    np.testing.assert_allclose(s.center().get_center().to_numpy(),
+                               [0, 0, 0], atol=1e-9)
+
+
 def test_distance_map():
     import numpy as np
     from molscene import Scene
