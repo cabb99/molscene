@@ -131,3 +131,6 @@ ENV/
 scratch
 /scratch/
 nohup.out
+
+.github/copilot-instructions.md
+/recipe
