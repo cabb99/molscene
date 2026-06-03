@@ -88,6 +88,12 @@ def test_from_cif(ciffile):
     assert atom['altloc'] == 'G'
 
 
+def test_cif_quoted_atom_names_preserved():
+    """Atom names like O5' must survive CIF double-quoting (e.g. "O5'")."""
+    s = Scene.from_cif(Path('molscene/data/1zbl.cif'))
+    assert "O5'" in s['name'].values, "O5' was mangled during CIF parsing"
+
+
 def test_cif_pdb_resid_agreement(pdbfile, ciffile):
     # CIF resid (now auth_seq_id) should match PDB resid for the same atom
     pdb = Scene.from_pdb(pdbfile)
@@ -158,7 +164,7 @@ def test_residue_key_no_collision():
         'chain': ['A', 'B'],
         'resid': [11, 1],
         'fragment': [1, 11],
-        'iCode': ['', ''],
+        'icode': ['', ''],
     })
     s = Scene(data)
     # fragment=1 resid=11 and fragment=11 resid=1 must get different residue indices
@@ -167,19 +173,156 @@ def test_residue_key_no_collision():
 
 def test_compute_mass(pdbfile):
     s = Scene.from_pdb(pdbfile)
-    s_mass = s.compute_mass()
-    assert 'mass' in s_mass.columns
-    # Original should not be modified
-    assert 'mass' not in s.columns
+    # mass is now auto-populated during construction
+    assert 'mass' in s.columns
     # Check known element masses for a few atoms
     # Atom 0: element N -> 14.007
-    assert s_mass.loc[0, 'mass'] == pytest.approx(14.007)
+    assert s.loc[0, 'mass'] == pytest.approx(14.007)
     # Atom 500: element C -> 12.011
-    assert s_mass.loc[500, 'mass'] == pytest.approx(12.011)
-    # Atom 1576: element S -> 32.06
-    assert s_mass.loc[1576, 'mass'] == pytest.approx(32.06)
+    assert s.loc[500, 'mass'] == pytest.approx(12.011)
+    # Atom 1576: element S -> 32.07
+    assert s.loc[1576, 'mass'] == pytest.approx(32.07)
     # All masses should be > 0 for real atoms
-    assert (s_mass['mass'] > 0).all()
+    assert (s['mass'] > 0).all()
+    # compute_mass still works (returns copy, no-op if already present)
+    s_mass = s.compute_mass()
+    assert 'mass' in s_mass.columns
+
+
+def test_uppercase_element_symbol_maps_properties():
+    s = Scene(pd.DataFrame({'x': [0.0], 'y': [0.0], 'z': [0.0], 'element': ['MG']}))
+
+    assert s.loc[0, 'mass'] == pytest.approx(24.305)
+    assert s.loc[0, 'atomicnumber'] == 12
+    assert s.loc[0, 'radius'] == pytest.approx(1.73)
+
+
+# --- Tests for icode rename ---
+
+def test_icode_column_pdb(pdbfile):
+    """iCode was renamed to icode (lowercase)."""
+    s = Scene.from_pdb(pdbfile)
+    assert 'icode' in s.columns
+    assert 'iCode' not in s.columns
+    # All icode values for 1zir should be empty strings
+    assert (s['icode'] == '').all()
+
+
+def test_icode_column_cif(ciffile):
+    s = Scene.from_cif(ciffile)
+    assert 'icode' in s.columns
+    assert 'iCode' not in s.columns
+
+
+def test_icode_default_on_bare_scene():
+    """Bare Scene (from coords only) should get icode, not iCode."""
+    s = Scene([[0, 0, 0]])
+    assert 'icode' in s.columns
+    assert 'iCode' not in s.columns
+
+
+# --- Tests for segment column ---
+
+def test_segment_column_pdb(pdbfile):
+    """PDB segment comes from columns 73-76 (usually blank for most PDBs)."""
+    s = Scene.from_pdb(pdbfile)
+    assert 'segment' in s.columns
+    # 1zir.pdb typically has blank segment columns
+    assert s['segment'].dtype == object
+
+
+def test_segment_column_cif(ciffile):
+    """CIF segment is derived from auth_asym_id (the author chain id), following
+    the ProDy convention where chain = label_asym_id."""
+    s = Scene.from_cif(ciffile)
+    assert 'segment' in s.columns
+    # 1zir.cif has auth_asym_id values, so segment should be populated.
+    assert len(s['segment'].unique()) > 0
+    assert not (s['segment'] == '').all()
+
+
+def test_segment_column_cif_matches_auth_asym_id(ciffile):
+    """CIF segment values should match auth_asym_id when present."""
+    s = Scene.from_cif(ciffile)
+    if 'auth_asym_id' in s.columns:
+        assert (s['segment'] == s['auth_asym_id']).all()
+
+
+# --- Tests for atomicnumber column ---
+
+def test_atomicnumber_column_pdb(pdbfile):
+    s = Scene.from_pdb(pdbfile)
+    assert 'atomicnumber' in s.columns
+    # N -> 7, C -> 6, O -> 8, S -> 16
+    assert s.loc[0, 'atomicnumber'] == 7   # N
+    assert s.loc[1, 'atomicnumber'] == 6   # C (CA)
+    assert s.loc[3, 'atomicnumber'] == 8   # O
+    assert s.loc[1576, 'atomicnumber'] == 16  # S (SD in MET)
+    assert s['atomicnumber'].dtype == int
+
+
+def test_atomicnumber_column_cif(ciffile):
+    s = Scene.from_cif(ciffile)
+    assert 'atomicnumber' in s.columns
+    assert s.loc[0, 'atomicnumber'] == 7   # N
+
+
+# --- Tests for radius column ---
+
+def test_radius_column_pdb(pdbfile):
+    s = Scene.from_pdb(pdbfile)
+    assert 'radius' in s.columns
+    # VdW radii: N -> 1.55, C -> 1.70, O -> 1.52, S -> 1.80
+    assert s.loc[0, 'radius'] == pytest.approx(1.55)   # N
+    assert s.loc[1, 'radius'] == pytest.approx(1.70)   # C
+    assert s.loc[3, 'radius'] == pytest.approx(1.52)   # O
+    assert s.loc[1576, 'radius'] == pytest.approx(1.80) # S
+    assert (s['radius'] > 0).all()
+
+
+def test_radius_column_cif(ciffile):
+    s = Scene.from_cif(ciffile)
+    assert 'radius' in s.columns
+    assert s.loc[0, 'radius'] == pytest.approx(1.55)   # N
+
+
+# --- Tests for type column ---
+
+def test_type_column_pdb(pdbfile):
+    s = Scene.from_pdb(pdbfile)
+    assert 'type' in s.columns
+    # type should equal element for standard atoms
+    assert s.loc[0, 'type'] == 'N'
+    assert s.loc[1, 'type'] == 'C'
+    assert (s['type'] == s['element']).all()
+
+
+def test_type_column_cif(ciffile):
+    s = Scene.from_cif(ciffile)
+    assert 'type' in s.columns
+    assert (s['type'] == s['element']).all()
+
+
+# --- Tests for element-derived columns on all structures ---
+
+@pytest.mark.parametrize("structure", ['1r70', '1zbl', '1zir'])
+@pytest.mark.parametrize("fmt", ['pdb', 'cif'])
+def test_element_derived_columns_present(structure, fmt):
+    """All structures should have mass, atomicnumber, radius, type columns."""
+    path = Path(f'molscene/data/{structure}.{fmt}')
+    if not path.exists():
+        pytest.skip(f'{path} not found')
+    if fmt == 'pdb':
+        s = Scene.from_pdb(path)
+    else:
+        s = Scene.from_cif(path)
+    for col in ['mass', 'atomicnumber', 'radius', 'type']:
+        assert col in s.columns, f"Missing column '{col}' in {path}"
+    # mass and radius should be > 0 for all atoms with known elements
+    known = s['element'].isin(['C', 'N', 'O', 'S', 'H', 'P', 'Fe', 'Zn', 'Ca', 'Mg', 'Na', 'Cl'])
+    assert (s.loc[known, 'mass'] > 0).all()
+    assert (s.loc[known, 'radius'] > 0).all()
+    assert (s.loc[known, 'atomicnumber'] > 0).all()
 
 
 def test_compute_secondary_structure(ciffile, dsspfile):
@@ -515,3 +658,252 @@ def test_get_sequence_1zbl():
 
 if __name__ == '__main__':
     pass
+
+
+# --- Tests for phi/psi dihedral calculation ---
+
+def test_compute_phi_psi_columns(pdbfile):
+    """compute_phi_psi should add phi and psi columns."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_phi_psi()
+    assert 'phi' in result.columns
+    assert 'psi' in result.columns
+    assert len(result) == len(s)
+
+
+def test_compute_phi_psi_first_residue_no_phi(pdbfile):
+    """The first residue in a chain has no phi (needs C from prev residue)."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_phi_psi()
+    # Find the first residue index in fragment 0
+    frag0 = result[result['fragment'] == 0]
+    first_res = frag0['residue'].min()
+    first_atoms = frag0[frag0['residue'] == first_res]
+    assert first_atoms['phi'].isna().all()
+
+
+def test_compute_phi_psi_last_residue_no_psi(pdbfile):
+    """The last residue in a chain has no psi (needs N from next residue)."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_phi_psi()
+    frag0 = result[result['fragment'] == 0]
+    last_res = frag0['residue'].max()
+    last_atoms = frag0[frag0['residue'] == last_res]
+    assert last_atoms['psi'].isna().all()
+
+
+def test_compute_phi_psi_range(pdbfile):
+    """Interior phi/psi should be in [-180, 180]."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_phi_psi()
+    valid_phi = result['phi'].dropna()
+    valid_psi = result['psi'].dropna()
+    assert (valid_phi >= -180).all() and (valid_phi <= 180).all()
+    assert (valid_psi >= -180).all() and (valid_psi <= 180).all()
+
+
+def test_compute_phi_psi_known_values():
+    """Test phi/psi with a minimal synthetic backbone (known geometry)."""
+    # Build 3 residues of backbone atoms in an extended (beta) conformation.
+    # Extended sheet: phi ≈ -120°, psi ≈ +120° (roughly).
+    # We'll use ideal coordinates for an anti-parallel beta strand.
+    coords = {
+        # Residue 0: N, CA, C
+        'N0':  np.array([0.000, 0.000, 0.000]),
+        'CA0': np.array([1.458, 0.000, 0.000]),
+        'C0':  np.array([2.009, 1.420, 0.000]),
+        # Residue 1: N, CA, C
+        'N1':  np.array([3.327, 1.556, 0.000]),
+        'CA1': np.array([3.983, 2.850, 0.000]),
+        'C1':  np.array([5.483, 2.711, 0.000]),
+        # Residue 2: N, CA, C
+        'N2':  np.array([6.071, 1.517, 0.000]),
+        'CA2': np.array([7.519, 1.358, 0.000]),
+        'C2':  np.array([8.087, 2.760, 0.000]),
+    }
+    rows = []
+    for i in range(3):
+        for aname in ['N', 'CA', 'C']:
+            c = coords[f'{aname}{i}']
+            rows.append({
+                'x': c[0], 'y': c[1], 'z': c[2],
+                'name': aname, 'element': aname[0],
+                'chain': 'A', 'resid': i + 1,
+                'resname': 'ALA',
+            })
+
+    s = Scene(pd.DataFrame(rows))
+    result = s.compute_phi_psi()
+
+    # Residue 0: no phi, has psi
+    res0 = result[result['resid'] == 1]
+    assert res0['phi'].isna().all()
+    assert res0['psi'].notna().all()
+
+    # Residue 1 (middle): has both phi and psi
+    res1 = result[result['resid'] == 2]
+    assert res1['phi'].notna().all()
+    assert res1['psi'].notna().all()
+
+    # Residue 2: has phi, no psi
+    res2 = result[result['resid'] == 3]
+    assert res2['phi'].notna().all()
+    assert res2['psi'].isna().all()
+
+    # Check angles are finite and in valid range (coplanar coords give 0 or ±180)
+    phi_1 = res1['phi'].iloc[0]
+    psi_1 = res1['psi'].iloc[0]
+    assert -180 <= phi_1 <= 180, f"phi out of range: {phi_1}"
+    assert -180 <= psi_1 <= 180, f"psi out of range: {psi_1}"
+    # For the all-z=0 planar layout, dihedrals are exactly 0 or ±180
+    assert abs(phi_1) == pytest.approx(180, abs=1) or phi_1 == pytest.approx(0, abs=1)
+    assert abs(psi_1) == pytest.approx(180, abs=1) or psi_1 == pytest.approx(0, abs=1)
+
+
+def test_compute_phi_psi_multichain(pdbfile):
+    """Phi/psi should not bleed across chains."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_phi_psi()
+    for _, frag in result.groupby('fragment'):
+        first_res = frag['residue'].min()
+        last_res = frag['residue'].max()
+        # First residue of each chain: no phi
+        assert frag[frag['residue'] == first_res]['phi'].isna().all()
+        # Last residue of each chain: no psi
+        assert frag[frag['residue'] == last_res]['psi'].isna().all()
+
+
+# ---------- compute_bonds / numbonds / pfrag / nfrag ----------
+
+def test_compute_bonds_columns(pdbfile):
+    """compute_bonds adds numbonds, pfrag, nfrag columns."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_bonds()
+    assert 'numbonds' in result.columns
+    assert 'pfrag' in result.columns
+    assert 'nfrag' in result.columns
+
+
+def test_compute_bonds_ca_numbonds(pdbfile):
+    """CA atoms in standard residues should have 2-3 bonds."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_bonds()
+    ca = result[result['name'] == 'CA']
+    # Filter to first occurrence per residue (altloc duplicates get 0 bonds)
+    ca = ca.drop_duplicates(subset=['chain', 'resid', 'icode', 'name'], keep='first')
+    assert (ca['numbonds'] >= 2).all()
+    assert (ca['numbonds'] <= 3).all()
+
+
+def test_compute_bonds_pfrag_isolation():
+    """Protein fragments from separate chains get distinct pfrag ids."""
+    s = Scene.from_pdb(Path('molscene/data/1zbl.pdb'))
+    result = s.compute_bonds()
+    m1 = result[result['model'] == 1]
+    protein = m1[m1['resname'].isin(['ALA', 'ARG', 'ASN', 'ASP', 'CYS',
+        'GLN', 'GLU', 'GLY', 'HIS', 'ILE', 'LEU', 'LYS', 'MET', 'PHE',
+        'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'])]
+    chains = protein.groupby('chain')['pfrag'].nunique()
+    # Each protein chain should have exactly 1 pfrag
+    assert (chains == 1).all()
+
+
+def test_compute_bonds_multi_model():
+    """Both models in a multi-model file should get the same bond counts."""
+    s = Scene.from_pdb(Path('molscene/data/1zbl.pdb'))
+    result = s.compute_bonds()
+    m1 = result[result['model'] == 1]
+    m2 = result[result['model'] == 2]
+    assert len(m1) == len(m2)
+    assert m1['numbonds'].mean() == pytest.approx(m2['numbonds'].mean())
+    assert (m1['numbonds'] > 0).sum() == (m2['numbonds'] > 0).sum()
+
+
+def test_compute_bonds_nfrag():
+    """Nucleic fragments should be detected in structures with DNA/RNA."""
+    s = Scene.from_pdb(Path('molscene/data/1zbl.pdb'))
+    result = s.compute_bonds()
+    m1 = result[result['model'] == 1]
+    nuc = m1[m1['nfrag'] > 0]
+    assert len(nuc) > 0, "should detect nucleic fragments in 1zbl"
+
+
+def test_compute_bonds_water_zero():
+    """Water molecules should have 0 bonds (no connectivity in CCD)."""
+    s = Scene.from_pdb(Path('molscene/data/1zbl.pdb'))
+    result = s.compute_bonds()
+    water = result[result['resname'] == 'HOH']
+    if len(water) > 0:
+        assert (water['numbonds'] == 0).all()
+
+
+def test_compute_bonds_stores_meta(pdbfile):
+    """Bond adjacency list should be stored in _meta['bonds']."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_bonds()
+    assert hasattr(result, '_meta') and 'bonds' in result._meta
+    adj = result._meta['bonds']
+    assert len(adj) == len(result)
+
+
+# ---------- compute_anisou ----------
+
+_ANISOU_PDB = """\
+ATOM      1  N   ALA A   1       1.000   2.000   3.000  1.00 10.00           N
+ANISOU    1  N   ALA A   1      200    300    400     50     60     70       N
+ATOM      2  CA  ALA A   1       2.000   3.000   4.000  1.00 12.00           C
+ANISOU    2  CA  ALA A   1      500    600    700     80     90    100       C
+ATOM      3  C   ALA A   1       3.000   4.000   5.000  1.00 14.00           C
+END
+"""
+
+
+def test_compute_anisou_pdb(tmp_path):
+    """compute_anisou reads ANISOU records from a PDB file."""
+    pdb = tmp_path / "anisou.pdb"
+    pdb.write_text(_ANISOU_PDB)
+    s = Scene.from_pdb(pdb)
+    assert 'ufx' not in s.columns  # not loaded eagerly
+    result = s.compute_anisou()
+    assert 'ufx' in result.columns
+    assert 'ufy' in result.columns
+    assert 'ufz' in result.columns
+    # Atom 1: U11=200 → 0.02, U22=300 → 0.03, U33=400 → 0.04
+    row0 = result.iloc[0]
+    assert row0['ufx'] == pytest.approx(0.02)
+    assert row0['ufy'] == pytest.approx(0.03)
+    assert row0['ufz'] == pytest.approx(0.04)
+    # Atom 2: U11=500 → 0.05, U22=600 → 0.06, U33=700 → 0.07
+    row1 = result.iloc[1]
+    assert row1['ufx'] == pytest.approx(0.05)
+    assert row1['ufy'] == pytest.approx(0.06)
+    assert row1['ufz'] == pytest.approx(0.07)
+
+
+def test_compute_anisou_missing_records(tmp_path):
+    """Atoms without ANISOU records get 0.0."""
+    pdb = tmp_path / "anisou.pdb"
+    pdb.write_text(_ANISOU_PDB)
+    s = Scene.from_pdb(pdb)
+    result = s.compute_anisou()
+    # Atom 3 (C) has no ANISOU record
+    row2 = result.iloc[2]
+    assert row2['ufx'] == 0.0
+    assert row2['ufy'] == 0.0
+    assert row2['ufz'] == 0.0
+
+
+def test_compute_anisou_no_source_raises():
+    """compute_anisou raises if no source file is recorded."""
+    s = Scene([[0, 0, 0]])
+    with pytest.raises(ValueError, match="no source file"):
+        s.compute_anisou()
+
+
+def test_compute_anisou_no_anisou_in_file(pdbfile):
+    """Files without ANISOU records get all-zero columns."""
+    s = Scene.from_pdb(pdbfile)
+    result = s.compute_anisou()
+    assert (result['ufx'] == 0.0).all()
+    assert (result['ufy'] == 0.0).all()
+    assert (result['ufz'] == 0.0).all()

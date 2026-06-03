@@ -8,11 +8,13 @@ import numpy as np
 import io
 import tempfile
 from typing import Union, Tuple, Sequence, List
+from pathlib import Path
 import re
 from scipy.spatial import cKDTree, distance
 import logging
 from . import utils
-from .data.element_masses import _element_masses
+from .bonds import compute_bonds as _compute_bonds
+from .data.element_info import element_info
 from .transformation import Transformation
 from .matching import as_matching as _as_matching
 
@@ -55,11 +57,17 @@ _DNA_residues = {'DA': 'A', 'DC': 'C', 'DG': 'G', 'DT': 'T'}
 
 _RNA_residues = {'A': 'A', 'C': 'C', 'G': 'G', 'U': 'U'}
 
-_cif_tokenizer = re.compile(r"""'[^']*'      |  # single-quoted
-                                "[^"]*"     |  # double-quoted
-                                \#[^\n]*    |  # comment
-                                [^\s'"#]+      # unquoted
+_cif_tokenizer = re.compile(r"""'([^']*)'    |  # single-quoted → group 1
+                                "([^"]*)"    |  # double-quoted → group 2
+                                \#[^\n]*     |  # comment (no group)
+                                ([^\s'"#]+)     # unquoted → group 3
                             """, re.VERBOSE)
+
+
+def _canonicalize_element_symbol(symbol):
+    if isinstance(symbol, str) and symbol.isalpha() and symbol.isupper():
+        return symbol[0] + symbol[1:].lower()
+    return symbol
 
 def _read_cif_category(file_path, category):
     """
@@ -97,13 +105,30 @@ def _read_cif_category(file_path, category):
                 in_section = True
 
             elif in_section:
-                data.append([
-                    token.strip("'\"")
-                    for token in _cif_tokenizer.findall(line)
-                    if not token.startswith('#')
-                ])
+                tokens = []
+                for m in _cif_tokenizer.finditer(line):
+                    sq, dq, word = m.group(1), m.group(2), m.group(3)
+                    val = sq if sq is not None else (dq if dq is not None else word)
+                    if val is not None:
+                        tokens.append(val)
+                if tokens:
+                    data.append(tokens)
 
     return pandas.DataFrame(data, columns=header)
+
+
+def _dihedral(p0, p1, p2, p3):
+    """Return the dihedral angle in degrees defined by four points."""
+    b1 = p1 - p0
+    b2 = p2 - p1
+    b3 = p3 - p2
+    n1 = np.cross(b1, b2)
+    n2 = np.cross(b2, b3)
+    m = np.cross(n1, b2 / np.linalg.norm(b2))
+    x = np.dot(n1, n2)
+    y = np.dot(m, n2)
+    return np.degrees(np.arctan2(y, x))
+
 
 
 class _FrameAccessor:
@@ -153,7 +178,7 @@ class Scene(pandas.DataFrame):
                 'resname': 'Residue name',
                 'chain': 'Chain identifier',
                 'resid': 'Residue sequence number',
-                'iCode': 'Code for insertion of residues',
+                'icode': 'Code for insertion of residues',
                 'x': 'Orthogonal coordinates for X in Angstroms',
                 'y': 'Orthogonal coordinates for Y in Angstroms',
                 'z': 'Orthogonal coordinates for Z in Angstroms',
@@ -190,8 +215,8 @@ class Scene(pandas.DataFrame):
             self['chain'] = ['A'] * len(self)
         if 'resid' not in self.columns:
             self['resid'] = [1] * len(self)
-        if 'iCode' not in self.columns:
-            self['iCode'] = [''] * len(self)
+        if 'icode' not in self.columns:
+            self['icode'] = [''] * len(self)
         if 'altloc' not in self.columns:
             self['altloc'] = [''] * len(self)
         if 'model' not in self.columns:
@@ -206,6 +231,18 @@ class Scene(pandas.DataFrame):
             self['beta'] = [1.0] * len(self)
         if 'resname' not in self.columns:
             self['resname'] = [''] * len(self)
+
+        element_symbols = self['element'].map(_canonicalize_element_symbol)
+
+        # Element-derived columns
+        if 'mass' not in self.columns:
+            self['mass'] = element_symbols.map(element_info.mass).fillna(0.0)
+        if 'atomicnumber' not in self.columns:
+            self['atomicnumber'] = element_symbols.map(element_info.atomicnumber).fillna(0).astype(int)
+        if 'radius' not in self.columns:
+            self['radius'] = element_symbols.map(element_info.radius).fillna(0.0)
+        if 'type' not in self.columns:
+            self['type'] = self['element']
         
         # Create an integer index for the chains
         if 'fragment' not in self.columns:
@@ -218,7 +255,7 @@ class Scene(pandas.DataFrame):
             residue_keys = (
                 self['fragment'].astype(str) + '_' +
                 self['resid'].astype(str) + '_' +
-                self['iCode'].astype(str)
+                self['icode'].astype(str)
             )
 
             # Get unique residue keys and map to integers
@@ -240,9 +277,202 @@ class Scene(pandas.DataFrame):
     def compute_mass(self):
         out = self.copy()
         if 'mass' not in out.columns:
-            out['mass'] = out['element'].map(_element_masses).fillna(0)
+            out['mass'] = out['element'].map(_canonicalize_element_symbol).map(element_info.mass).fillna(0)
         else:
             Warning("Mass column already exists, skipping.")
+        return out
+
+    def compute_phi_psi(self):
+        """Compute backbone phi and psi dihedral angles (degrees) per atom.
+
+        Phi (φ) = dihedral(C_prev, N_i, CA_i, C_i)
+        Psi (ψ) = dihedral(N_i, CA_i, C_i, N_next)
+
+        Terminal residues and non-protein atoms get ``NaN``.
+
+        Returns
+        -------
+        Scene
+            Copy of ``self`` with ``phi`` and ``psi`` columns added.
+        """
+        out = self.copy()
+        phi = np.full(len(out), np.nan)
+        psi = np.full(len(out), np.nan)
+
+        # Work per fragment (chain) so residue numbering from different
+        # chains never mixes.
+        for _, frag in out.groupby('fragment'):
+            # Extract backbone atoms: N, CA, C
+            backbone = frag[frag['name'].isin(['N', 'CA', 'C'])]
+
+            # Group by residue and collect ordered coords (N, CA, C)
+            residue_atoms: dict = {}  # residue_idx -> {'N': xyz, 'CA': xyz, 'C': xyz}
+            for row in backbone.itertuples():
+                res = row.residue
+                if res not in residue_atoms:
+                    residue_atoms[res] = {}
+                residue_atoms[res][row.name] = np.array([row.x, row.y, row.z])
+
+            # Keep only residues that have all three backbone atoms
+            complete = {
+                r: atoms for r, atoms in residue_atoms.items()
+                if 'N' in atoms and 'CA' in atoms and 'C' in atoms
+            }
+            sorted_res = sorted(complete)
+
+            # Walk consecutive pairs
+            for i in range(len(sorted_res)):
+                res = sorted_res[i]
+                atoms_i = complete[res]
+                mask = frag['residue'] == res
+
+                # Phi: need C from previous residue
+                if i > 0:
+                    prev = sorted_res[i - 1]
+                    atoms_prev = complete[prev]
+                    angle = _dihedral(
+                        atoms_prev['C'], atoms_i['N'],
+                        atoms_i['CA'], atoms_i['C'],
+                    )
+                    phi[mask.values] = angle
+
+                # Psi: need N from next residue
+                if i < len(sorted_res) - 1:
+                    nxt = sorted_res[i + 1]
+                    atoms_next = complete[nxt]
+                    angle = _dihedral(
+                        atoms_i['N'], atoms_i['CA'],
+                        atoms_i['C'], atoms_next['N'],
+                    )
+                    psi[mask.values] = angle
+
+        out['phi'] = phi
+        out['psi'] = psi
+        return out
+
+    def compute_bonds(self):
+        """Build bond graph from residue topology.
+
+        Adds the following columns:
+
+        - ``numbonds`` — number of covalent bonds per atom.
+        - ``pfrag`` — connected-component index among protein residues
+          (``-1`` for non-protein atoms).
+        - ``nfrag`` — connected-component index among nucleic-acid residues
+          (``-1`` for non-nucleic atoms).
+
+        The bond adjacency list is stored in ``_meta['bonds']``.
+
+        Returns
+        -------
+        Scene
+            Copy with the new columns.
+        """
+        return _compute_bonds(self)
+
+    def compute_anisou(self):
+        """Read anisotropic displacement parameters from the source file.
+
+        Adds columns ``ufx``, ``ufy``, ``ufz`` (diagonal elements of the
+        anisotropic U tensor: U11, U22, U33 in Å²).  Atoms without ANISOU
+        records get ``0.0``.
+
+        The Scene must have been loaded via :meth:`from_pdb` or
+        :meth:`from_cif` so that ``_meta['source_file']`` is set.
+
+        Returns
+        -------
+        Scene
+            Copy with the new columns.
+        """
+        source = self._meta.get('source_file')
+        fmt = self._meta.get('source_format')
+        if source is None:
+            raise ValueError(
+                "Cannot compute ANISOU: no source file recorded. "
+                "Load via Scene.from_pdb() or Scene.from_cif()."
+            )
+
+        out = self.copy()
+        if fmt == 'pdb':
+            out = self._read_anisou_pdb(out, source)
+        elif fmt == 'cif':
+            out = self._read_anisou_cif(out, source)
+        else:
+            raise ValueError(f"Unknown source format: {fmt!r}")
+        return out
+
+    @staticmethod
+    def _read_anisou_pdb(out, file_path):
+        """Parse ANISOU records from a PDB file and merge into *out*."""
+        anisou_lines = []
+        model_number = 1
+        with open(file_path, 'r') as f:
+            for line in f:
+                if len(line) > 6:
+                    header = line[:6]
+                    if header == 'ANISOU':
+                        try:
+                            serial = int(line[6:11])
+                            u11 = int(line[28:35]) / 10000.0
+                            u22 = int(line[35:42]) / 10000.0
+                            u33 = int(line[42:49]) / 10000.0
+                            anisou_lines.append({
+                                'serial': serial, 'model': model_number,
+                                'ufx': u11, 'ufy': u22, 'ufz': u33,
+                            })
+                        except (ValueError, IndexError):
+                            pass
+                    elif header == 'MODEL ':
+                        model_number = int(line[10:14])
+        if anisou_lines:
+            anisou_df = pandas.DataFrame(anisou_lines)
+            out = out.merge(
+                anisou_df, on=['serial', 'model'], how='left',
+            )
+        for col in ('ufx', 'ufy', 'ufz'):
+            if col not in out.columns:
+                out[col] = 0.0
+            else:
+                out[col] = out[col].fillna(0.0)
+        return out
+
+    @staticmethod
+    def _read_anisou_cif(out, file_path):
+        """Parse anisotropic data from a CIF file and merge into *out*."""
+        aniso = _read_cif_category(file_path, '_atom_site_anisotrop')
+        if len(aniso) > 0 and 'id' in aniso.columns:
+            _aniso_rename = {}
+            for col in aniso.columns:
+                if col == 'id':
+                    _aniso_rename[col] = 'serial'
+                elif 'U[1][1]' in col:
+                    _aniso_rename[col] = 'ufx'
+                elif 'U[2][2]' in col:
+                    _aniso_rename[col] = 'ufy'
+                elif 'U[3][3]' in col:
+                    _aniso_rename[col] = 'ufz'
+            aniso = aniso.rename(_aniso_rename, axis=1)
+            if 'serial' in aniso.columns:
+                aniso['serial'] = pandas.to_numeric(
+                    aniso['serial'], errors='coerce'
+                ).fillna(0).astype(int)
+                for col in ('ufx', 'ufy', 'ufz'):
+                    if col in aniso.columns:
+                        aniso[col] = pandas.to_numeric(
+                            aniso[col], errors='coerce'
+                        ).fillna(0.0)
+                merge_cols = ['serial'] + [
+                    c for c in ('ufx', 'ufy', 'ufz') if c in aniso.columns
+                ]
+                out = out.merge(
+                    aniso[merge_cols], on='serial', how='left',
+                )
+        for col in ('ufx', 'ufy', 'ufz'):
+            if col not in out.columns:
+                out[col] = 0.0
+            else:
+                out[col] = out[col].fillna(0.0)
         return out
 
     def compute_secondary_structure(self, dssp_file=None, **kwargs):
@@ -471,14 +701,15 @@ class Scene(pandas.DataFrame):
                      resname=line[17:20].strip(),
                      chain=line[21:22].strip(),
                      resid=line[22:26],
-                     iCode=line[26:27].strip(),
+                     icode=line[26:27].strip(),
                      x=line[30:38],
                      y=line[38:46],
                      z=line[46:54],
                      occupancy=line[54:60].strip(),
                      beta=line[60:66].strip(),
                      element=line[76:78].strip(),
-                     charge=line[78:80].strip())
+                     charge=line[78:80].strip(),
+                     segment=line[72:76].strip() if len(line) > 72 else '')
             return l
 
         with open(file, 'r') as pdb:
@@ -504,7 +735,7 @@ class Scene(pandas.DataFrame):
                                  resname=str(line[12:15]).strip(),
                                  chain=str(line[16:17]).strip(),
                                  resid=int(line[18:22]),
-                                 iCode=str(line[22:23]).strip(),
+                                 icode=str(line[22:23]).strip(),
                                  stdRes=str(line[24:27]).strip(),
                                  comment=str(line[29:70]).strip())
                         mod_lines += [m]
@@ -512,9 +743,9 @@ class Scene(pandas.DataFrame):
                         model_number = int(line[10:14])
         pdb_atoms = pandas.DataFrame(lines)
         pdb_atoms = pdb_atoms[['recname', 'serial', 'name', 'altloc',
-                               'resname', 'chain', 'resid', 'iCode',
+                               'resname', 'chain', 'resid', 'icode',
                                'x', 'y', 'z', 'occupancy', 'beta',
-                               'element', 'charge']]
+                               'element', 'charge', 'segment']]
         
         # Apply type conversions and set default values
         pdb_atoms['serial'] = pandas.to_numeric(pdb_atoms['serial'], errors='coerce').fillna(0).astype(int)
@@ -528,6 +759,8 @@ class Scene(pandas.DataFrame):
         pdb_atoms['model'] = model_numbers
         pdb_atoms['molecule'] = 0
 
+        kwargs['source_file'] = str(Path(file).resolve())
+        kwargs['source_format'] = 'pdb'
         if len(mod_lines) > 0:
             kwargs.update(dict(modified_residues=pandas.DataFrame(mod_lines)))
 
@@ -560,7 +793,7 @@ class Scene(pandas.DataFrame):
                            'label_comp_id': 'resname',
                            'label_asym_id': 'chain',
                            'auth_seq_id': 'resid',
-                           'pdbx_PDB_ins_code': 'iCode',
+                           'pdbx_PDB_ins_code': 'icode',
                            'Cartn_x': 'x',
                            'Cartn_y': 'y',
                            'Cartn_z': 'z',
@@ -571,27 +804,80 @@ class Scene(pandas.DataFrame):
                            'pdbx_PDB_model_num': 'model'}
 
         cif_atoms = cif_atoms.rename(_cif_pdb_rename, axis=1)
-        for col in cif_atoms.columns:
-            try:
-                cif_atoms[col] = cif_atoms[col].astype(float)
-                if ((cif_atoms[col].astype(int) - cif_atoms[col]) ** 2).sum() == 0:
-                    cif_atoms[col] = cif_atoms[col].astype(int)
-                continue
-            except ValueError:
-                pass
 
-        cif_atoms['serial'] = pandas.to_numeric(cif_atoms['serial'], errors='coerce').fillna(0).astype(int)
-        cif_atoms['resid'] = pandas.to_numeric(cif_atoms['resid'], errors='coerce').fillna(0).astype(int)
-        cif_atoms['x'] = pandas.to_numeric(cif_atoms['x'], errors='coerce').fillna(0.0)
-        cif_atoms['y'] = pandas.to_numeric(cif_atoms['y'], errors='coerce').fillna(0.0)
-        cif_atoms['z'] = pandas.to_numeric(cif_atoms['z'], errors='coerce').fillna(0.0)
-        cif_atoms['occupancy'] = pandas.to_numeric(cif_atoms['occupancy'], errors='coerce').fillna(1.0)
-        cif_atoms['beta'] = pandas.to_numeric(cif_atoms['beta'], errors='coerce').fillna(1.0)
-        if 'charge' in cif_atoms.columns:
-            cif_atoms['charge'] = pandas.to_numeric(cif_atoms['charge'], errors='coerce').fillna(0.0)
+        # CIF uses '.' and '?' for missing/unknown values; replace with NA
+        cif_atoms = cif_atoms.replace({'.': pandas.NA, '?': pandas.NA})
+
+        # Column type conversions based on the mmCIF dictionary
+        # (https://mmcif.wwpdb.org/dictionaries/mmcif_pdbx_v50.dic/Categories/atom_site.html)
+        # All atom_site columns are listed below (using renamed names where applicable).
+        #
+        # int columns: {renamed_col: default_value}
+        #   id (serial)              — code/char in spec, always integral in practice
+        #   auth_seq_id (resid)      — code/char in spec, always integral in practice
+        #   pdbx_formal_charge (charge) — int, default 0
+        #   pdbx_PDB_model_num (model) — int, default 1
+        _int_cols = {'serial': 0, 'resid': 0, 'charge': 0, 'model': 1}
+        # float columns: {renamed_col: default_value}
+        #   Cartn_x/y/z (x/y/z)     — float
+        #   occupancy                — float, default 1.0
+        #   B_iso_or_equiv (beta)    — float
+        _float_cols = {'x': 0.0, 'y': 0.0, 'z': 0.0,
+                       'occupancy': 1.0, 'beta': 0.0}
+        # nullable int columns: int per spec but legitimately '.' for some records
+        #   label_seq_id             — int, '.' for HETATM records
+        _nullable_int_cols = ['label_seq_id']
+        # str columns: {col: default_value} — NA replaced with default
+        #   label_alt_id (altloc)    — code/char, default ''
+        #   pdbx_PDB_ins_code (icode) — code/char, default ''
+        #   group_PDB                — ucode/char ('ATOM' or 'HETATM')
+        #   label_entity_id          — code/char
+        #   auth_comp_id             — code/char
+        #   auth_asym_id             — code/char
+        #   auth_atom_id             — code/char
+        # str columns that keep NA if absent (no default needed):
+        #   label_atom_id (name)     — atcode/char
+        #   label_comp_id (resname)  — ucode/char
+        #   label_asym_id (chain)    — code/char
+        #   type_symbol (element)    — code/char
+        _str_defaults = {'altloc': '', 'icode': '', 'group_PDB': '',
+                         'label_entity_id': '', 'auth_comp_id': '',
+                         'auth_asym_id': '', 'auth_atom_id': ''}
+
+        for col, default in _int_cols.items():
+            if col in cif_atoms.columns:
+                cif_atoms[col] = pandas.to_numeric(
+                    cif_atoms[col], errors='coerce').fillna(default).astype(int)
+            else:
+                cif_atoms[col] = default
+
+        for col, default in _float_cols.items():
+            if col in cif_atoms.columns:
+                cif_atoms[col] = pandas.to_numeric(
+                    cif_atoms[col], errors='coerce').fillna(default)
+
+        for col in _nullable_int_cols:
+            if col in cif_atoms.columns:
+                cif_atoms[col] = pandas.to_numeric(
+                    cif_atoms[col], errors='coerce').astype('Int64')
+
+        for col, default in _str_defaults.items():
+            if col in cif_atoms.columns:
+                cif_atoms[col] = cif_atoms[col].fillna(default)
+
+        # CIF has no PDB-style segment column (cols 73-76). Since molscene maps
+        # chain = label_asym_id (the ProDy convention; see the resid note above),
+        # the author chain id (auth_asym_id) is the natural segment: it groups the
+        # label_asym_id chains that share a single author-assigned chain. This
+        # matches ProDy, which sets segment = auth_asym_id. (label_entity_id is an
+        # entity grouping, not a segment, so it is kept as its own column instead.)
+        if 'auth_asym_id' in cif_atoms.columns:
+            cif_atoms['segment'] = cif_atoms['auth_asym_id']
         else:
-            cif_atoms['charge'] = 0.0
-                
+            cif_atoms['segment'] = ''
+
+        kwargs['source_file'] = str(Path(file_path).resolve())
+        kwargs['source_format'] = 'cif'
         return cls(cif_atoms, **kwargs)
 
     @classmethod
@@ -632,7 +918,7 @@ class Scene(pandas.DataFrame):
         """ Parses a pdb in the openmm format and outputs a table that contains all the information
         on a pdb file """
         cols = ['recname', 'serial', 'name', 'altloc',
-                'resname', 'chain', 'resid', 'iCode',
+                'resname', 'chain', 'resid', 'icode',
                 'x', 'y', 'z', 'occupancy', 'beta',
                 'element', 'charge']
         data = []
@@ -657,7 +943,7 @@ class Scene(pandas.DataFrame):
         """ Parses a pdb in the openmm format and outputs a table that contains all the information
         on a pdb file """
         cols = ['recname', 'serial', 'name', 'altloc',
-                'resname', 'chain', 'resid', 'iCode',
+                'resname', 'chain', 'resid', 'icode',
                 'x', 'y', 'z', 'occupancy', 'beta',
                 'element', 'charge']
         data = []
@@ -725,7 +1011,7 @@ class Scene(pandas.DataFrame):
         pdb_table['resname'] = 'R' if 'resname' not in pdb_table else pdb_table['resname']
         pdb_table['chain'] = 'C' if 'chain' not in pdb_table else pdb_table['chain']
         pdb_table['resid'] = 1 if 'resid' not in pdb_table else pdb_table['resid']
-        pdb_table['iCode'] = '' if 'iCode' not in pdb_table else pdb_table['iCode']
+        pdb_table['icode'] = '' if 'icode' not in pdb_table else pdb_table['icode']
         assert 'x' in pdb_table.columns, 'Coordinate x not in particle definition'
         assert 'y' in pdb_table.columns, 'Coordinate x not in particle definition'
         assert 'z' in pdb_table.columns, 'Coordinate x not in particle definition'
@@ -832,7 +1118,7 @@ class Scene(pandas.DataFrame):
         pdbx_table['chain'] = 'C' if 'chain' not in pdbx_table else pdbx_table['chain']
         pdbx_table['resid'] = 1 if 'resid' not in pdbx_table else pdbx_table['resid']
         pdbx_table['resIC'] = 1 if 'resIC' not in pdbx_table else pdbx_table['resIC']
-        pdbx_table['iCode'] = '' if 'iCode' not in pdbx_table else pdbx_table['iCode']
+        pdbx_table['icode'] = '' if 'icode' not in pdbx_table else pdbx_table['icode']
         assert 'x' in pdbx_table.columns, 'Coordinate x not in particle definition'
         assert 'y' in pdbx_table.columns, 'Coordinate x not in particle definition'
         assert 'z' in pdbx_table.columns, 'Coordinate x not in particle definition'
@@ -848,7 +1134,7 @@ class Scene(pandas.DataFrame):
             pdbx_table[col] = pandas.to_numeric(pdbx_table[col], errors='coerce').fillna(0.0)
             
         #If the column is a string convert and empty string to a dot
-        for col in ['name', 'altloc', 'resname', 'chain', 'iCode', 'element']:
+        for col in ['name', 'altloc', 'resname', 'chain', 'icode', 'element']:
             pdbx_table[col] = pdbx_table[col].str.strip().replace('', '.')
 
         lines = ""
@@ -897,8 +1183,8 @@ class Scene(pandas.DataFrame):
                 return val
 
         for col in ['serial',
-                    'name', 'resname', 'chain', 'resid', 'iCode',
-                    'name', 'resname', 'chain', 'resid','iCode',
+                    'name', 'resname', 'chain', 'resid', 'icode',
+                    'name', 'resname', 'chain', 'resid', 'icode', #duplicated for auth vs label
                     'x', 'y', 'z',
                     'occupancy', 'beta',
                     'element', 'charge', 'model']:

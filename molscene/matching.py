@@ -12,7 +12,7 @@ Three concrete strategies ship with MolScene:
   lengths.
 * :class:`ColumnMatching` — inner-join on a tuple of columns. Default keys
   are the canonical PDB unique-atom identifiers
-  ``(chain, resid, iCode, name, altloc)``.
+  ``(chain, resid, icode, name, altloc)``.
 * :class:`SequenceMatching` — per-chain Needleman–Wunsch on the one-letter
   protein/nucleic sequence (one atom per residue, ``CA`` by default).
 
@@ -28,7 +28,7 @@ import numpy as np
 import pandas
 
 
-_DEFAULT_COLUMN_KEYS = ("chain", "resid", "iCode", "name", "altloc")
+_DEFAULT_COLUMN_KEYS = ("chain", "resid", "icode", "name", "altloc")
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ class ColumnMatching(Matching):
 
     Duplicate keys on either side are resolved by keeping the first occurrence,
     so the result is always 1-to-1. The default key
-    ``(chain, resid, iCode, name, altloc)`` is the strict PDB unique-atom
+    ``(chain, resid, icode, name, altloc)`` is the strict PDB unique-atom
     identifier; drop ``altloc`` (or pre-filter with ``select(altloc=['A'])``)
     when working with scenes that only carry a single alternate location.
     """
