@@ -127,7 +127,7 @@ def _dihedral(p0, p1, p2, p3):
     m = np.cross(n1, b2 / np.linalg.norm(b2))
     x = np.dot(n1, n2)
     y = np.dot(m, n2)
-    return np.degrees(np.arctan2(y, x))
+    return -np.degrees(np.arctan2(y, x))
 
 
 
