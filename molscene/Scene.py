@@ -1169,7 +1169,7 @@ class Scene(pandas.DataFrame):
             return self.copy(deep=True)
 
         out = self.copy(deep=True)
-        coords = out.get_coordinates().to_numpy()
+        coords = out.get_coordinates().to_numpy().copy()
 
         n = len(resids)
         for i, resid in enumerate(resids):
