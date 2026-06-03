@@ -130,6 +130,53 @@ def _dihedral(p0, p1, p2, p3):
     return -np.degrees(np.arctan2(y, x))
 
 
+def _pdb_atom_name_field(name, element) -> str:
+    """Justify an atom name into the 4-character PDB name field (cols 13-16).
+
+    Per the PDB convention the element symbol is right-justified in columns
+    13-14, so a name with a one-letter element and fewer than four characters
+    is shifted one column right (``" CA "``); two-letter elements and
+    digit-leading hydrogen names start in column 13 (``"FE  "``, ``"HD11"``).
+    """
+    name = str(name)
+    if len(name) >= 4:
+        return name[:4]
+    if len(str(element)) == 1 and not name[:1].isdigit():
+        return f" {name:<3}"
+    return f"{name:<4}"
+
+
+def _format_pdb_charge(charge) -> str:
+    """Format a formal charge into the 2-character PDB field (e.g. ``"2+"``).
+
+    Zero or unparseable charges yield two spaces. PDB stores a single signed
+    digit, so magnitudes are clamped to 9.
+    """
+    try:
+        c = int(round(float(charge)))
+    except (ValueError, TypeError):
+        return "  "
+    if c == 0:
+        return "  "
+    return f"{min(abs(c), 9)}{'+' if c > 0 else '-'}"
+
+
+def _parse_pdb_charge(field) -> float:
+    """Parse a PDB charge field (``"2+"``, ``"1-"``, ``"-1"`` or blank).
+       Charge uses the PDB "<digit><sign>" notation (e.g. "2+")"""
+    s = str(field).strip()
+    if not s:
+        return 0.0
+    if s[-1] in "+-":              # PDB form: digit then sign, e.g. "2+"
+        mag, sign = s[:-1].strip(), s[-1]
+        if mag.isdigit():
+            return float(mag) * (1.0 if sign == "+" else -1.0)
+        return 0.0
+    try:                            # tolerate plain signed integers, e.g. "-1"
+        return float(s)
+    except ValueError:
+        return 0.0
+
 
 class _FrameAccessor:
     def __init__(self, scene: "Scene"):
@@ -232,15 +279,18 @@ class Scene(pandas.DataFrame):
         if 'resname' not in self.columns:
             self['resname'] = [''] * len(self)
 
-        element_symbols = self['element'].map(_canonicalize_element_symbol)
-
-        # Element-derived columns
-        if 'mass' not in self.columns:
-            self['mass'] = element_symbols.map(element_info.mass).fillna(0.0)
-        if 'atomicnumber' not in self.columns:
-            self['atomicnumber'] = element_symbols.map(element_info.atomicnumber).fillna(0).astype(int)
-        if 'radius' not in self.columns:
-            self['radius'] = element_symbols.map(element_info.radius).fillna(0.0)
+        # Element-derived columns. Mapping every element through
+        # canonicalization is the costliest part of __init__, and __init__ runs
+        # on every internally-constructed frame (slices, arithmetic), so only
+        # pay for it when one of the derived columns is actually missing.
+        if not {'mass', 'atomicnumber', 'radius'} <= set(self.columns):
+            element_symbols = self['element'].map(_canonicalize_element_symbol)
+            if 'mass' not in self.columns:
+                self['mass'] = element_symbols.map(element_info.mass).fillna(0.0)
+            if 'atomicnumber' not in self.columns:
+                self['atomicnumber'] = element_symbols.map(element_info.atomicnumber).fillna(0).astype(int)
+            if 'radius' not in self.columns:
+                self['radius'] = element_symbols.map(element_info.radius).fillna(0.0)
         if 'type' not in self.columns:
             self['type'] = self['element']
         
@@ -275,11 +325,14 @@ class Scene(pandas.DataFrame):
             self._meta[attr] = value
 
     def compute_mass(self):
+        """Return a copy with a ``mass`` column (per-atom mass in daltons).
+
+        ``mass`` is normally populated already at construction time; this is a
+        no-op copy when the column is present.
+        """
         out = self.copy()
         if 'mass' not in out.columns:
             out['mass'] = out['element'].map(_canonicalize_element_symbol).map(element_info.mass).fillna(0)
-        else:
-            Warning("Mass column already exists, skipping.")
         return out
 
     def compute_phi_psi(self):
@@ -680,17 +733,6 @@ class Scene(pandas.DataFrame):
 
         return Scene(self.loc[sel].copy(), **self._meta)
 
-
-
-    # def split_models(self):
-    #     # TODO: Implement splitting based on model and altLoc.
-    #     # altLoc can be present in multiple regions (1zir)
-    #     pass
-
-    # #        for m in self['model'].unique():
-    # #            for a in sel:
-    # #                pass
-
     @classmethod
     def from_pdb(cls, file, **kwargs):
         def pdb_line(line):
@@ -755,7 +797,7 @@ class Scene(pandas.DataFrame):
         pdb_atoms['z'] = pandas.to_numeric(pdb_atoms['z'], errors='coerce').fillna(0.0)
         pdb_atoms['occupancy'] = pandas.to_numeric(pdb_atoms['occupancy'], errors='coerce').fillna(1.0)
         pdb_atoms['beta'] = pandas.to_numeric(pdb_atoms['beta'], errors='coerce').fillna(1.0)
-        pdb_atoms['charge'] = pandas.to_numeric(pdb_atoms['charge'], errors='coerce').fillna(0.0)
+        pdb_atoms['charge'] = pdb_atoms['charge'].map(_parse_pdb_charge)
         pdb_atoms['model'] = model_numbers
         pdb_atoms['molecule'] = 0
 
@@ -1003,37 +1045,54 @@ class Scene(pandas.DataFrame):
 
     # Writing
     def _format_pdb_atoms(self) -> str:
-        """Return the PDB ATOM lines for the current single-frame coordinates."""
-        pdb_table = self.copy()
-        pdb_table['serial'] = np.arange(1, len(self) + 1) if 'serial' not in pdb_table else pdb_table['serial']
-        pdb_table['name'] = 'A' if 'name' not in pdb_table else pdb_table['name']
-        pdb_table['altloc'] = '' if 'altloc' not in pdb_table else pdb_table['altloc']
-        pdb_table['resname'] = 'R' if 'resname' not in pdb_table else pdb_table['resname']
-        pdb_table['chain'] = 'C' if 'chain' not in pdb_table else pdb_table['chain']
-        pdb_table['resid'] = 1 if 'resid' not in pdb_table else pdb_table['resid']
-        pdb_table['icode'] = '' if 'icode' not in pdb_table else pdb_table['icode']
-        assert 'x' in pdb_table.columns, 'Coordinate x not in particle definition'
-        assert 'y' in pdb_table.columns, 'Coordinate x not in particle definition'
-        assert 'z' in pdb_table.columns, 'Coordinate x not in particle definition'
-        pdb_table['occupancy'] = 0 if 'occupancy' not in pdb_table else pdb_table['occupancy']
-        pdb_table['beta'] = 0 if 'beta' not in pdb_table else pdb_table['beta']
-        pdb_table['element'] = '' if 'element' not in pdb_table else pdb_table['element']
-        pdb_table['charge'] = 0 if 'charge' not in pdb_table else pdb_table['charge']
+        """Return spec-compliant 80-column PDB ATOM/HETATM lines.
 
-        # The ``chain`` column is authoritative. (Historically this branch
-        # remapped chain names from ``molecule``, but ``from_pdb`` always
-        # initializes ``molecule = 0``, so the remap collapsed every chain
-        # into one. Users who want molecule-keyed output should rewrite
-        # ``scene['chain']`` themselves before calling ``write_pdb``.)
+        Every field the ATOM record can hold is written (record name, serial,
+        atom name, altloc, resname, chain, resid, icode, x/y/z, occupancy,
+        temperature factor, element and formal charge) so the output
+        round-trips through :meth:`from_pdb`. Missing columns fall back to
+        sensible defaults; the ``chain`` column is authoritative.
+        """
+        t = self.copy()
+        defaults = {
+            'recname': 'ATOM', 'name': 'X', 'altloc': '', 'resname': '',
+            'chain': 'A', 'resid': 1, 'icode': '', 'occupancy': 0.0,
+            'beta': 0.0, 'element': '', 'charge': 0,
+        }
+        for col, default in defaults.items():
+            if col not in t:
+                t[col] = default
+        if 'serial' not in t:
+            t['serial'] = np.arange(1, len(self) + 1)
+        for axis in ('x', 'y', 'z'):
+            assert axis in t.columns, f'Coordinate {axis} not in particle definition'
 
-        lines = ''
-        for i, atom in pdb_table.iterrows():
-            line = f'ATOM  {i%100000:>5} {atom["name"]:^4} {atom["resname"]:<3} {atom["chain"]}{atom["resid"]:>4}' + \
-                   '    ' + \
-                   f'{atom.x:>8.3f}{atom.y:>8.3f}{atom.z:>8.3f}' + ' ' * 22 + f'{atom.element:2}' + ' ' * 2
-            assert len(line) == 80, f'An item in the atom table is longer than expected\n{line}'
-            lines += line + '\n'
-        return lines
+        lines = []
+        for atom in t.itertuples(index=False):
+            recname = str(getattr(atom, 'recname', 'ATOM')) or 'ATOM'
+            altloc = (str(atom.altloc)[:1] if atom.altloc != '' else ' ')
+            icode = (str(atom.icode)[:1] if atom.icode != '' else ' ')
+            line = (
+                f"{recname:<6}"
+                f"{int(atom.serial) % 100000:>5}"
+                " "
+                f"{_pdb_atom_name_field(atom.name, atom.element):<4}"
+                f"{altloc:1}"
+                f"{str(atom.resname):>3.3}"
+                " "
+                f"{str(atom.chain)[:1] or ' ':1}"
+                f"{int(atom.resid) % 10000:>4}"
+                f"{icode:1}"
+                "   "
+                f"{atom.x:>8.3f}{atom.y:>8.3f}{atom.z:>8.3f}"
+                f"{atom.occupancy:>6.2f}{atom.beta:>6.2f}"
+                "          "
+                f"{str(atom.element):>2.2}"
+                f"{_format_pdb_charge(atom.charge):>2}"
+            )
+            assert len(line) == 80, f'PDB line is not 80 columns ({len(line)}):\n{line}'
+            lines.append(line)
+        return '\n'.join(lines) + '\n' if lines else ''
 
     def write_pdb(self, file_name=None, verbose=False):
         """
@@ -1071,39 +1130,26 @@ class Scene(pandas.DataFrame):
                 out.write(lines)
 
     def write_cif(self, file_name=None, verbose=False):
-        """Write a PDBx/mmCIF file.
+        """Serialize to a PDBx/mmCIF ``_atom_site`` loop.
+
+        Each canonical column is written into both the ``label_*`` and
+        ``auth_*`` fields so the file round-trips through :meth:`from_cif`
+        (``label_alt_id`` carries ``altloc``; ``pdbx_PDB_ins_code`` carries
+        ``icode``).
 
         Parameters
         ----------
-        topology : Topology
-            The Topology defining the molecular system being written
-        file : file=stdout
-            A file to write the file to
-        entry : str=None
-            The entry ID to assign to the CIF file
-        keepIds : bool=False
-            If True, keep the residue and chain IDs specified in the Topology
-            rather than generating new ones.  Warning: It is up to the caller to
-            make sure these are valid IDs that satisfy the requirements of the
-            PDBx/mmCIF format.  Otherwise, the output file will be invalid.
-        """
-        """Write out a model to a PDBx/mmCIF file.
+        file_name : str or path-like, optional
+            Destination path. When ``None``, the CIF text is returned as an
+            :class:`io.StringIO` instead of being written to disk.
+        verbose : bool, optional
+            If ``True``, print the atom count and destination.
 
-        Parameters
-        ----------
-        topology : Topology
-            The Topology defining the model to write
-        positions : list
-            The list of atomic positions to write
-        file : file=stdout
-            A file to write the model to
-        modelIndex : int=1
-            The model number of this frame
-        keepIds : bool=False
-            If True, keep the residue and chain IDs specified in the Topology
-            rather than generating new ones.  Warning: It is up to the caller to
-            make sure these are valid IDs that satisfy the requirements of the
-            PDBx/mmCIF format.  Otherwise, the output file will be invalid.
+        Returns
+        -------
+        io.StringIO or None
+            A ``StringIO`` of the CIF text when ``file_name`` is ``None``,
+            otherwise ``None``.
         """
         # TODO Add connectivity output
         if verbose:
@@ -1159,7 +1205,7 @@ class Scene(pandas.DataFrame):
         lines += "_atom_site.occupancy\n"
         lines += "_atom_site.B_iso_or_equiv\n"
         lines += "_atom_site.type_symbol\n"
-        lines += "_atom_site.pdbx_formal_chrge\n"
+        lines += "_atom_site.pdbx_formal_charge\n"
         lines += "_atom_site.pdbx_PDB_model_num\n"
 
         pdbx_table['line'] = 'ATOM'
@@ -1182,8 +1228,15 @@ class Scene(pandas.DataFrame):
             else:
                 return val
 
+        # The columns are written in the order declared in the loop_ header
+        # above. The first name/resname/chain/resid block fills the label_*
+        # fields (label_seq_id := resid) and label_alt_id := altloc; the second
+        # block fills the auth_* fields (auth_seq_id := resid) and
+        # pdbx_PDB_ins_code := icode. altloc and icode occupy *different* CIF
+        # fields, so both must appear (writing icode into the label_alt_id slot
+        # silently drops altloc on round-trip).
         for col in ['serial',
-                    'name', 'resname', 'chain', 'resid', 'icode',
+                    'name', 'resname', 'chain', 'resid', 'altloc',
                     'name', 'resname', 'chain', 'resid', 'icode', #duplicated for auth vs label
                     'x', 'y', 'z',
                     'occupancy', 'beta',
@@ -1777,28 +1830,6 @@ class Scene(pandas.DataFrame):
                 return pandas.DataFrame(particles, *args, **kwargs)
         return _create_scene_if_complete
 
-    # def __getattr__(self, attr):
-    #     if '_meta' in self.__dict__ and attr in self._meta:
-    #         return self._meta[attr]
-    #     elif attr in self.columns:
-    #         return self[attr]
-    #     else:
-    #         raise AttributeError(f"type object {str(self.__class__)} has no attribute {str(attr)}")
-        
-    # def __getattr__(self, attr):
-    #     # Safely retrieve _meta without triggering __getattr__ again.
-    #     meta = object.__getattribute__(self, '_meta') if '_meta' in self.__dict__ else {}
-
-    #     if attr in meta:
-    #         return meta[attr]
-
-    #     # Use object.__getattribute__ to get columns without recursion.
-    #     cols = object.__getattribute__(self, 'columns')
-    #     if attr in cols:
-    #         return self[attr]
-
-    #     raise AttributeError(f"{self.__class__.__name__} has no attribute {attr}")
-    
     def __getattribute__(self, name):
         """
         Override attribute lookup only to provide access to items stored in _meta.
@@ -1902,76 +1933,3 @@ def _as_delta(other) -> pandas.Series:
             raise ValueError(f"Cannot interpret {other!r} as a 3-vector")
     return delta
 
-def _negate(other):
-    """Invert a scalar/sequence/Series for subtraction."""
-    delta = _as_delta(other)
-    return -delta
-
-if __name__ == '__main__':
-    particles = pandas.DataFrame([[0, 0, 0],
-                                  [0, 1, 0],
-                                  [0, 0, 1]],
-                                 columns=['x', 'y', 'z'])
-    s = Scene(particles)
-    s.write_pdb('test.pdb')
-
-    s = Scene.from_pdb('test.pdb')
-
-    s.write_cif('test.cif')
-
-    s = Scene.from_cif('test.cif')
-
-    s = Scene.from_fixPDB(pdbid='1JGE')
-
-    s1 = Scene(particles)
-    s1.write_pdb('test.pdb')
-    s2 = Scene.from_pdb('test.pdb')
-    s2.write_cif('test.cif')
-    s3 = Scene.from_cif('test.cif')
-    s3.write_pdb('test2.pdb')
-    s4 = Scene.from_pdb('test2.pdb')
-
-    s1.to_csv('particles_1.csv')
-    s2.to_csv('particles_2.csv')
-    s3.to_csv('particles_3.csv')
-    s4.to_csv('particles_4.csv')
-
-"""
-import numpy as np
-import pandas as pd
-
-def h5store(filename, df, **kwargs):
-    store = pandas.HDFStore(filename)
-    store.put('mydata', df)
-    store.get_storer('mydata').attrs.metadata = kwargs
-    store.close()
-
-def h5load(store):
-    data = store['mydata']
-    metadata = store.get_storer('mydata').attrs.metadata
-    return data, metadata
-
-a = pandas.DataFrame(
-    data=pandas.np.random.randint(0, 100, (10, 5)), columns=list('ABCED'))
-
-filename = '/tmp/data.h5'
-metadata = dict(local_tz='US/Eastern')
-h5store(filename, a, **metadata)
-with pandas.HDFStore(filename) as store:
-    data, metadata = h5load(store)
-
-print(data)
-#     A   B   C   E   D
-# 0   9  20  92  43  25
-# 1   2  64  54   0  63
-# 2  22  42   3  83  81
-# 3   3  71  17  64  53
-# 4  52  10  41  22  43
-# 5  48  85  96  72  88
-# 6  10  47   2  10  78
-# 7  30  80   3  59  16
-# 8  13  52  98  79  65
-# 9   6  93  55  40   3
-
-$DATE$ $TIME$
-"""

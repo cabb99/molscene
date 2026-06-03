@@ -476,6 +476,58 @@ class Test_Read_Write():
     def test_convert(self, reader, writer, mol, tmp_path):
         self._convert(reader, writer, mol, tmp_path)
 
+    def test_cif_roundtrip_preserves_atom_fields(self, tmp_path):
+        """write_cif -> from_cif must preserve the atom fields it reads back.
+
+        Contract: from_cif populates altloc, icode, charge, occupancy, beta,
+        resname, name, chain and resid, so writing then re-reading a CIF must
+        return the same values. 1zir carries real alternate-location labels;
+        a couple of non-zero formal charges are set to exercise that column.
+        """
+        s1 = Scene.from_cif('molscene/data/1zir.cif')
+        s1.loc[0, 'charge'] = -1
+        s1.loc[1, 'charge'] = 2
+
+        out = get_test_file_path(tmp_path, 'roundtrip_fields.cif')
+        s1.write_cif(out)
+        s2 = Scene.from_cif(out)
+
+        for col in ['name', 'resname', 'chain', 'resid', 'icode', 'altloc',
+                    'occupancy', 'beta', 'element', 'charge']:
+            before = s1[col].reset_index(drop=True)
+            after = s2[col].reset_index(drop=True)
+            assert before.equals(after), (
+                f"column {col!r} not preserved through CIF round-trip:\n"
+                f"  before: {before[before.ne(after)].head().tolist()}\n"
+                f"  after:  {after[before.ne(after)].head().tolist()}"
+            )
+
+    def test_pdb_roundtrip_preserves_atom_fields(self, tmp_path):
+        """write_pdb -> from_pdb must preserve every field an ATOM record holds.
+
+        Contract: a full PDB ATOM record carries recname, serial, name,
+        altloc, resname, chain, resid, icode, occupancy, beta, element and
+        charge. 1zir carries real alternate-location labels; a couple of
+        non-zero formal charges exercise the PDB '2+'/'1-' charge notation.
+        """
+        s1 = Scene.from_pdb('molscene/data/1zir.pdb')
+        s1.loc[0, 'charge'] = -1.0
+        s1.loc[1, 'charge'] = 2.0
+
+        out = get_test_file_path(tmp_path, 'roundtrip_fields.pdb')
+        s1.write_pdb(out)
+        s2 = Scene.from_pdb(out)
+
+        for col in ['recname', 'serial', 'name', 'resname', 'chain', 'resid',
+                    'icode', 'altloc', 'occupancy', 'beta', 'element', 'charge']:
+            before = s1[col].reset_index(drop=True)
+            after = s2[col].reset_index(drop=True)
+            assert before.equals(after), (
+                f"column {col!r} not preserved through PDB round-trip:\n"
+                f"  before: {before[before.ne(after)].head().tolist()}\n"
+                f"  after:  {after[before.ne(after)].head().tolist()}"
+            )
+
 
 @pytest.fixture
 def simple_scene():
