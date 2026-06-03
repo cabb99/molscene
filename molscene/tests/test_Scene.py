@@ -227,8 +227,10 @@ def test_segment_column_pdb(pdbfile):
     """PDB segment comes from columns 73-76 (usually blank for most PDBs)."""
     s = Scene.from_pdb(pdbfile)
     assert 'segment' in s.columns
-    # 1zir.pdb typically has blank segment columns
-    assert s['segment'].dtype == object
+    # 1zir.pdb typically has blank segment columns. The column is text-typed;
+    # accept both object (pandas <3) and StringDtype (pandas >=3 string inference).
+    seg_dtype = s['segment'].dtype
+    assert seg_dtype == object or isinstance(seg_dtype, pd.StringDtype)
 
 
 def test_segment_column_cif(ciffile):
