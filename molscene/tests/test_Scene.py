@@ -528,6 +528,36 @@ class Test_Read_Write():
                 f"  after:  {after[before.ne(after)].head().tolist()}"
             )
 
+    # Atom columns that Scene construction does NOT synthesize, so they can be
+    # genuinely absent at write time and a writer must default them itself.
+    # (Every other canonical column is re-added by __init__/copy().)
+    OPTIONAL_WRITE_COLUMNS = ['serial', 'recname', 'charge']
+
+    @pytest.mark.parametrize('column', OPTIONAL_WRITE_COLUMNS)
+    @pytest.mark.parametrize('writer,reader,suffix', [
+        ('write_pdb', 'from_pdb', '.pdb'),
+        ('write_cif', 'from_cif', '.cif'),
+        ('write_gro', None, '.gro'),
+    ])
+    def test_write_without_optional_columns(self, writer, reader, suffix, column, tmp_path):
+        """A writer must serialize a Scene even when an optional atom column is
+        absent, defaulting the field rather than raising.
+
+        Regression: write_cif raised KeyError('charge') for charge-less scenes
+        (every coordinate-built Scene lacks charge, serial and recname). The
+        column is dropped then the Scene rebuilt so it is genuinely missing at
+        write time; the file is re-read to confirm it is still valid.
+        """
+        s = Scene(pd.DataFrame(Scene.from_pdb('molscene/data/1zir.pdb')).drop(columns=[column]))
+        assert column not in s.columns, "construction must not re-add this column"
+
+        out = get_test_file_path(tmp_path, f'drop_{column}_{writer}{suffix}')
+        getattr(s, writer)(out)        # must not raise
+        assert Path(out).exists()
+        if reader is not None:         # from_gro is not implemented yet
+            s2 = getattr(Scene, reader)(out)
+            assert len(s2) == len(s)
+
 
 @pytest.fixture
 def simple_scene():

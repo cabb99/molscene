@@ -19,6 +19,8 @@ from .transformation import Transformation
 from .matching import as_matching as _as_matching
 
 
+logger = logging.getLogger(__name__)
+
 _MOLSELECT_EVALUATOR = None
 
 
@@ -242,9 +244,15 @@ class Scene(pandas.DataFrame):
     
 
     # Initialization
-    def __init__(self, particles, altloc='A', model=1, infer_columns = True, **kwargs):
-        """Create an empty scene from particles.
-        The Scene object is a wraper of a pandas DataFrame with extra information"""
+    def __init__(self, particles, **kwargs):
+        """Create a scene from particles.
+
+        ``particles`` may be anything :class:`pandas.DataFrame` accepts (an
+        ``(N, 3)`` array of coordinates, a DataFrame with ``x``/``y``/``z``
+        columns, etc.). Any extra keyword arguments are stored as scene-level
+        metadata (see ``_meta``). The ``Scene`` is a DataFrame wrapper with the
+        canonical structural columns inferred and a metadata dict attached.
+        """
         super().__init__(particles)
         # Add metadata dictionary
         self.__dict__['_meta'] = {}
@@ -766,10 +774,10 @@ class Scene(pandas.DataFrame):
                         try:
                             lines += [pdb_line(line)]
                         except ValueError as e:
-                            print(e)
-                            print(f"Error in line {i}")
-                            print(line)
-                            raise ValueError
+                            logger.error("Malformed PDB atom record at line %d: %r", i, line.rstrip())
+                            raise ValueError(
+                                f"Could not parse PDB atom record at line {i}: {line.rstrip()!r}"
+                            ) from e
                         model_numbers += [model_number]
                     elif header == "MODRES":
                         m = dict(recname=str(line[0:6]).strip(),
@@ -956,34 +964,13 @@ class Scene(pandas.DataFrame):
         fixer.addMissingAtoms()  # Warning: importing 'simtk.openmm' is deprecated.  Import 'openmm' instead.
         fixer.addMissingHydrogens(7.0)
 
-        pdb = fixer
-        """ Parses a pdb in the openmm format and outputs a table that contains all the information
-        on a pdb file """
-        cols = ['recname', 'serial', 'name', 'altloc',
-                'resname', 'chain', 'resid', 'icode',
-                'x', 'y', 'z', 'occupancy', 'beta',
-                'element', 'charge']
-        data = []
+        return cls.from_fixer(fixer, **kwargs)
 
-        for atom, pos in zip(pdb.topology.atoms(), pdb.positions):
-            residue = atom.residue
-            chain = residue.chain
-            pos = pos.value_in_unit(pdbfixer.pdbfixer.unit.angstrom)
-            data += [dict(zip(cols, ['ATOM', int(atom.id), atom.name, '',
-                                     residue.name, chain.id, int(residue.id), '',
-                                     pos[0], pos[1], pos[2], 0, 0,
-                                     atom.element.symbol, '']))]
-        atom_list = pandas.DataFrame(data)
-        atom_list = atom_list[cols]
-        atom_list.index = atom_list['serial']
-        return cls(atom_list, **kwargs)
-    
     @classmethod
     def from_fixer(cls, fixer, **kwargs):
+        """Parse a PDBFixer object (openmm topology + positions) into a Scene."""
         import pdbfixer
         pdb = fixer
-        """ Parses a pdb in the openmm format and outputs a table that contains all the information
-        on a pdb file """
         cols = ['recname', 'serial', 'name', 'altloc',
                 'resname', 'chain', 'resid', 'icode',
                 'x', 'y', 'z', 'occupancy', 'beta',
@@ -1106,7 +1093,7 @@ class Scene(pandas.DataFrame):
         """
         # TODO Add connectivity output
         if verbose:
-            print(f"Writing pdb file ({len(self)} atoms): {file_name}")
+            logger.info("Writing pdb file (%d atoms): %s", len(self), file_name)
 
         if 'coordinate_frames' in self._meta:
             frames = self.get_coordinate_frames()
@@ -1153,7 +1140,7 @@ class Scene(pandas.DataFrame):
         """
         # TODO Add connectivity output
         if verbose:
-            print(f"Writing cif file ({len(self)} atoms): {file_name}")
+            logger.info("Writing cif file (%d atoms): %s", len(self), file_name)
 
         # Fill empty columns
         pdbx_table = self.copy()
@@ -1172,6 +1159,7 @@ class Scene(pandas.DataFrame):
         pdbx_table['beta'] = 0 if 'beta' not in pdbx_table else pdbx_table['beta']
         pdbx_table['element'] = 'C' if 'element' not in pdbx_table else pdbx_table['element']
         pdbx_table['model'] = 0 if 'model' not in pdbx_table else pdbx_table['model']
+        pdbx_table['charge'] = 0 if 'charge' not in pdbx_table else pdbx_table['charge']
 
         # If the column is a string convert it to a float
         for col in ['serial', 'resid', 'resIC', 'model','charge']:
@@ -1274,7 +1262,7 @@ class Scene(pandas.DataFrame):
             If required columns are missing.
         """
         if verbose:
-            print(f"Writing GRO file ({len(self)} atoms): {file_name}")
+            logger.info("Writing GRO file (%d atoms): %s", len(self), file_name)
 
         # Prepare data
         gro_atoms = self.copy()
@@ -1353,7 +1341,7 @@ class Scene(pandas.DataFrame):
             chain_scene = Scene(chain_data, **self._meta)
             output_filename = f"{base_filename}_{chain_id}.gro"
             if verbose:
-                print(f"Writing chain '{chain_id}' to {output_filename}")
+                logger.info("Writing chain '%s' to %s", chain_id, output_filename)
             chain_scene.write_gro(output_filename, box_size=box_size, verbose=verbose)
 
     # get methods
@@ -1825,7 +1813,7 @@ class Scene(pandas.DataFrame):
         def _create_scene_if_complete(particles, *args, **kwargs):
             cols = getattr(particles, 'columns', None)
             if cols is not None and all(col in cols for col in self._columns.keys()):
-                return Scene(particles, *args, infer_columns=False, **kwargs)
+                return Scene(particles, **kwargs)
             else:
                 return pandas.DataFrame(particles, *args, **kwargs)
         return _create_scene_if_complete
