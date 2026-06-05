@@ -430,6 +430,60 @@ def test_metadata_not_aliased_across_scenes():
     assert s._meta['author'] == 'CB'
 
 
+# --- Index-aligned metadata stays consistent through selection (README/user_guide
+# promise). Atom `index` is stable, so surviving references keep their value and
+# only references to dropped atoms are removed.
+
+def test_index_metadata_columns_track_selection():
+    # Per-atom `index_` metadata: each atom records a partner's (stable) index.
+    df = pd.DataFrame({
+        'x': range(6), 'y': [0] * 6, 'z': [0] * 6,
+        'chain': ['A', 'A', 'A', 'B', 'B', 'B'],
+        'resid': [1, 2, 3, 1, 2, 3],
+        'index_partner': [3, 2, 0, 4, 5, 0],     # atom0 -> 3 (chain B, dropped)
+    })
+    sub = Scene(df).select(chain=['A'])          # keeps stable indices {0, 1, 2}
+    vals = list(sub['index_partner'])
+    assert pd.isna(vals[0])                       # partner 3 was dropped -> NaN
+    assert vals[1] == 2 and vals[2] == 0          # surviving refs keep stable index
+
+
+def test_meta_topology_tables_filtered_on_selection():
+    # bond (index_1, index_2) and dihedral (index_1..4) tables stored in _meta
+    s = Scene(pd.DataFrame({
+        'x': range(6), 'y': [0] * 6, 'z': [0] * 6,
+        'chain': ['A', 'A', 'A', 'B', 'B', 'B'], 'resid': [1, 2, 3, 1, 2, 3],
+    }))
+    s._meta['bonds_table'] = pd.DataFrame({'index_1': [0, 1, 2, 3],
+                                           'index_2': [1, 2, 3, 4]})
+    s._meta['dihedrals'] = pd.DataFrame({'index_1': [0, 1], 'index_2': [1, 2],
+                                         'index_3': [2, 3], 'index_4': [3, 4]})
+    sub = s.select(chain=['A'])                   # keeps stable indices {0, 1, 2}
+    bt = sub._meta['bonds_table']
+    assert list(zip(bt['index_1'], bt['index_2'])) == [(0, 1), (1, 2)]  # (2,3),(3,4) gone
+    assert len(sub._meta['dihedrals']) == 0       # every dihedral touches a dropped atom
+
+
+def test_coordinate_frames_track_selection():
+    s = Scene.from_pdb('molscene/data/1jge.pdb')
+    frames = np.random.rand(2, len(s), 3)
+    s.set_coordinate_frames(frames)
+    sub = s.select(chain=['A'])
+    kept = sub['index'].to_numpy()
+    cf = sub.get_coordinate_frames()
+    assert cf.shape == (2, len(sub), 3)
+    np.testing.assert_allclose(cf, frames[:, kept, :])
+
+
+def test_bonds_adjacency_filtered_on_selection():
+    s = Scene.from_pdb('molscene/data/1jge.pdb').compute_bonds()
+    sub = s.select(chain=['A'])
+    adj = sub._meta['bonds']
+    kept = set(int(i) for i in sub['index'])
+    assert len(adj) == len(sub)                   # one entry per atom in the subset
+    assert all(n in kept for nbrs in adj for n in nbrs)  # only surviving neighbours
+
+
 def test_from_fixPDB(pdbfile):
     pytest.importorskip("pdbfixer")
     s = Scene.from_fixPDB(pdbfile)

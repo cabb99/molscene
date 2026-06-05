@@ -741,7 +741,64 @@ class Scene(pandas.DataFrame):
             else:
                 sel &= self[key].isin(values)
 
-        return Scene(self.loc[sel].copy(), **self._meta)
+        return self._subset(sel)
+
+    def _subset(self, sel) -> "Scene":
+        """Build a sub-Scene from boolean mask ``sel``, keeping index-aligned
+        metadata consistent with the removed atoms.
+
+        Atom indices stay stable (so ``scene - subset`` and round-trips keep
+        working); ``index_``-prefixed columns on the atoms and any index-aligned
+        ``_meta`` (bond/angle/dihedral tables, ``coordinate_frames``, the
+        ``bonds`` adjacency) drop their references to dropped atoms, while
+        surviving references are left untouched.
+        """
+        subset = self.loc[sel].copy()
+        if 'index' in subset.columns:
+            kept = subset['index'].to_numpy()
+        else:
+            kept = np.flatnonzero(np.asarray(sel))
+        kept_set = set(int(k) for k in kept)
+
+        # Per-atom index_ metadata: blank out references to dropped atoms.
+        for col in subset.columns:
+            if isinstance(col, str) and col.startswith('index_'):
+                subset[col] = subset[col].where(subset[col].isin(kept_set))
+
+        new_meta = {key: self._filter_index_metadata(key, val, kept, kept_set, len(self))
+                    for key, val in self._meta.items()}
+        return Scene(subset, **new_meta)
+
+    @staticmethod
+    def _filter_index_metadata(key, value, kept, kept_set, n_old):
+        """Keep one ``_meta`` value consistent with a subset of atoms.
+
+        Atom indices are *stable* (preserved through selection), so surviving
+        references are left untouched and only references to dropped atoms are
+        removed:
+
+        * DataFrame with ``index_*`` columns (bond/angle/dihedral tables): drop
+          rows that reference a dropped atom.
+        * ``coordinate_frames`` (``(n_frames, n_atoms, 3)`` array): keep the
+          selected atoms.
+        * ``bonds`` adjacency list (length ``n_atoms``): keep selected atoms and
+          their surviving neighbours.
+
+        Any other metadata is returned unchanged.
+        """
+        if isinstance(value, pandas.DataFrame):
+            idx_cols = [c for c in value.columns
+                        if isinstance(c, str) and c.startswith('index_')]
+            if not idx_cols:
+                return value
+            keep = value[idx_cols].isin(kept_set).all(axis=1)
+            return value[keep].reset_index(drop=True)
+        if (key == 'coordinate_frames' and isinstance(value, np.ndarray)
+                and value.ndim == 3 and value.shape[1] == n_old):
+            return value[:, kept, :]
+        if key == 'bonds' and isinstance(value, (list, tuple)) and len(value) == n_old:
+            return [[n for n in value[i] if n in kept_set] for i in kept]
+        return value
 
     @classmethod
     def from_pdb(cls, file, **kwargs):
