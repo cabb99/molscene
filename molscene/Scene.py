@@ -219,7 +219,9 @@ class _FrameAccessor:
 
 
 class Scene(pandas.DataFrame):
-    
+
+    _metadata = ["_meta"]
+
     _columns = {'recname': 'Record name',
                 'serial': 'Atom serial number',
                 'name': 'Atom name',
@@ -1818,6 +1820,21 @@ class Scene(pandas.DataFrame):
                 return pandas.DataFrame(particles, *args, **kwargs)
         return _create_scene_if_complete
 
+    def __finalize__(self, other, method=None, **kwargs):
+        """Give each derived (or concatenated) scene its own copy of ``_meta``."""
+        if isinstance(other, Scene):
+            self.__dict__['_meta'] = dict(other.__dict__.get('_meta', {}))
+        elif method == "concat" and hasattr(other, "objs"):
+            merged: dict = {}
+            for obj in other.objs:
+                meta = getattr(obj, '_meta', None)
+                if isinstance(meta, dict):
+                    merged.update(meta)
+            self.__dict__['_meta'] = merged
+        elif '_meta' not in self.__dict__:
+            self.__dict__['_meta'] = {}
+        return self
+
     def __getattribute__(self, name):
         """
         Override attribute lookup only to provide access to items stored in _meta.
@@ -1834,9 +1851,10 @@ class Scene(pandas.DataFrame):
             raise AttributeError(f"{self.__class__.__name__} has no attribute {name}")
 
     def __setattr__(self, attr, value):
-        # Always set _meta normally.
-        if attr == '_meta':
-            super().__setattr__(attr, value)
+        if (attr == '_meta'
+                or attr in type(self)._internal_names_set
+                or attr in type(self)._metadata):
+            object.__setattr__(self, attr, value)
             return
 
         # If the attribute name is one of the DataFrame's columns, assign to that column.

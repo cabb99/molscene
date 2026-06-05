@@ -385,6 +385,51 @@ def test_metadata():
     assert 'x' not in s._meta.keys()
     assert s['x'][0] == 3
 
+
+def test_del_column_removes_it():
+    """``del scene[col]`` must drop the column.
+
+    Regression: ``DataFrame.__delitem__`` rebinds the internal block manager
+    via ``self._mgr = ...``; ``Scene.__setattr__`` used to misroute that into
+    ``_meta`` (because ``_mgr`` is not a class attribute of DataFrame), so the
+    column silently survived and the manager leaked into metadata.
+    """
+    s = Scene.from_pdb('molscene/data/1zir.pdb')
+    assert 'beta' in s.columns
+    del s['beta']
+    assert 'beta' not in s.columns
+    assert '_mgr' not in s._meta          # internal must not leak into metadata
+    assert len(s) == 1771                  # Scene still usable
+    # metadata attributes still work after the fix
+    s.note = 'kept'
+    assert s.note == 'kept' and s._meta['note'] == 'kept'
+
+
+def test_metadata_survives_pandas_slicing():
+    """Scene-level metadata must ride along through generic pandas operations,
+    not only the hand-written Scene methods.
+
+    The developer guide promises that a slice of a Scene is still a Scene with
+    its metadata; without ``__finalize__`` propagation, iloc/boolean/sort
+    slices silently dropped it.
+    """
+    s = Scene.from_pdb('molscene/data/1zir.pdb')
+    s.author = 'CB'
+    for derived in (s.iloc[:10], s[s['name'] == 'CA'], s.sort_values('resid'), s.head()):
+        assert isinstance(derived, Scene)
+        assert derived._meta.get('author') == 'CB'
+
+
+def test_metadata_not_aliased_across_scenes():
+    """A derived scene must get an independent _meta dict, so mutating it does
+    not leak back into the source scene."""
+    s = Scene.from_pdb('molscene/data/1zir.pdb')
+    s.author = 'CB'
+    d = s.iloc[:10]
+    d.author = 'XX'
+    assert s._meta['author'] == 'CB'
+
+
 def test_from_fixPDB(pdbfile):
     pytest.importorskip("pdbfixer")
     s = Scene.from_fixPDB(pdbfile)
