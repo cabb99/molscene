@@ -765,10 +765,17 @@ def test_to_file_autodetects_format(tmp_path, ext):
     assert len(Scene.from_file(str(out))) == len(s)
 
 
-def test_from_gro_not_implemented():
-    """GRO *reading* is documented as not yet implemented (writing works)."""
-    with pytest.raises(NotImplementedError):
-        Scene.from_gro('molscene/data/does_not_matter.gro')
+def test_gro_is_awsem_gro_roundtrip(tmp_path):
+    """`.gro` is treated as the bespoke awsem_gro format (read + write round-trip)."""
+    s = Scene.from_pdb('molscene/data/1jge.pdb')
+    p = tmp_path / "mem.gro"
+    s.to_file(str(p))                     # .gro -> awsem_gro writer
+    back = Scene.from_file(str(p))        # .gro -> awsem_gro reader
+    assert back._meta.get('source_format') == 'awsem_gro'
+    # CA atoms round-trip with coordinates in Angstrom
+    ca_in = s[(s['name'] == 'CA')]
+    ca_out = back[back['name'] == 'CA']
+    assert len(ca_out) == len(ca_in)
 
 
 # ---------------------------------------------------------------------------
@@ -822,6 +829,130 @@ def test_distance_map():
     # Confirm that the only distances present are the ones we expect
     expected_dists = [1.0, 1.0, 1.0, 1.0, np.sqrt(2), np.sqrt(2)]
     np.testing.assert_allclose(sorted(dists), sorted(expected_dists))
+
+
+def test_prody_bridge_roundtrip():
+    import pytest
+    prody = pytest.importorskip("prody")
+    prody.confProDy(verbosity="none")
+
+    ag = prody.parsePDB("molscene/data/1jge.pdb")
+
+    # ProDy -> Scene
+    s = Scene.from_prody(ag)
+    assert len(s) == ag.numAtoms()
+    np.testing.assert_allclose(s[["x", "y", "z"]].to_numpy(dtype=float),
+                               ag.getCoords(), atol=1e-3)
+    assert list(s["name"]) == list(ag.getNames())
+    assert list(s["chain"]) == list(ag.getChids())
+    assert list(s["resname"]) == list(ag.getResnames())
+    # molscene derived columns are (re)computed
+    assert {"fragment", "residue", "index", "mass"} <= set(s.columns)
+
+    # A ProDy selection maps to just those atoms
+    ca = Scene.from_prody(ag.select("name CA"))
+    assert len(ca) == ag.select("name CA").numAtoms()
+    assert set(ca["name"]) == {"CA"}
+
+    # Scene -> ProDy -> Scene preserves coordinates and key fields
+    ag2 = s.to_prody()
+    assert ag2.numAtoms() == len(s)
+    np.testing.assert_allclose(ag2.getCoords(),
+                               s[["x", "y", "z"]].to_numpy(dtype=float), atol=1e-4)
+    s2 = Scene.from_prody(ag2)
+    np.testing.assert_allclose(s2[["x", "y", "z"]].to_numpy(dtype=float),
+                               s[["x", "y", "z"]].to_numpy(dtype=float), atol=1e-3)
+    assert list(s2["name"]) == list(s["name"])
+    assert list(s2["resname"]) == list(s["resname"])
+
+
+def test_isolated_repair_pdb():
+    import pytest
+    from pathlib import Path
+    pytest.importorskip("pdbfixer")
+    pytest.importorskip("openmm")
+    from molscene.backends.pdbfixer_backend import repair_pdb, repair_pdbs
+
+    raw = Scene.from_pdb("molscene/data/1zir.pdb")
+    assert not (raw["element"] == "H").any()  # crystal structure has no H
+
+    # single isolated repair: chain filtered, hydrogens added, re-parseable
+    cleaned = repair_pdb("molscene/data/1zir.pdb", chain="A")
+    assert Path(cleaned).exists()
+    s = Scene.from_pdb(str(cleaned))
+    assert len(s) > len(raw)
+    assert (s["element"] == "H").any()
+    assert set(s["chain"].unique()) == {"A"}
+
+    # Scene.from_fixPDB(isolated=True) gives the same result via the subprocess path
+    s2 = Scene.from_fixPDB(filename="molscene/data/1zir.pdb", isolated=True, chain="A")
+    assert len(s2) == len(s)
+
+    # batch API returns a cleaned path per job
+    outs = repair_pdbs([("molscene/data/1zir.pdb", "A")])
+    assert len(outs) == 1 and Path(outs[0]).exists()
+
+
+def test_awsem_memory_gro():
+    import io
+    import pandas as pd
+
+    rows = [
+        # residue A/1 ALA: full backbone + CB, plus a low-occupancy CB altloc
+        ('N', 'ALA', 'A', 1, '', 1.0, 1.0, 2.0, 3.0),
+        ('CA', 'ALA', 'A', 1, '', 1.0, 4.0, 5.0, 6.0),
+        ('C', 'ALA', 'A', 1, '', 1.0, 7.0, 8.0, 9.0),
+        ('O', 'ALA', 'A', 1, '', 1.0, 10.0, 11.0, 12.0),
+        ('CB', 'ALA', 'A', 1, 'A', 0.7, 13.0, 14.0, 15.0),
+        ('CB', 'ALA', 'A', 1, 'B', 0.3, 99.0, 99.0, 99.0),  # dropped (lower occ)
+        # residue A/2 GLY: regular (has N/CA/C), no CB
+        ('N', 'GLY', 'A', 2, '', 1.0, 20.0, 0.0, 0.0),
+        ('CA', 'GLY', 'A', 2, '', 1.0, 21.0, 0.0, 0.0),
+        ('C', 'GLY', 'A', 2, '', 1.0, 22.0, 0.0, 0.0),
+        ('O', 'GLY', 'A', 2, '', 1.0, 23.0, 0.0, 0.0),
+        # water: no backbone -> excluded
+        ('O', 'HOH', 'A', 3, '', 1.0, 50.0, 50.0, 50.0),
+    ]
+    df = pd.DataFrame(rows, columns=['name', 'resname', 'chain', 'resid', 'altloc',
+                                     'occupancy', 'x', 'y', 'z'])
+    s = Scene(df)
+
+    txt = s.write_awsem_memory_gro().getvalue()
+    header = txt.splitlines()[:2]
+    assert header[0] == ' Structure-Based gro file'
+
+    # Parse with OpenAWSEM's fragment_memory_term reader.
+    frag = pd.read_csv(io.StringIO(txt), skiprows=2, sep=r"\s+",
+                       names=['Res_id', 'Res', 'Type', 'i', 'x', 'y', 'z'])
+    # 9 atoms: res1 (N,CA,C,O,CB) + res2 (N,CA,C,O); water excluded; altloc deduped.
+    assert int(header[1]) == len(frag) == 9
+    assert list(frag['Res_id']) == [1, 1, 1, 1, 1, 2, 2, 2, 2]
+    assert list(frag['Type']) == ['N', 'CA', 'C', 'O', 'CB', 'N', 'CA', 'C', 'O']
+    # atom index restarts at 1 and is sequential
+    assert list(frag['i']) == list(range(1, 10))
+    # coordinates are Angstrom/10, and the kept CB is the high-occupancy one
+    np.testing.assert_allclose(frag.iloc[1][['x', 'y', 'z']].to_numpy(float),
+                               [0.4, 0.5, 0.6])          # CA of res 1
+    np.testing.assert_allclose(frag.iloc[4][['x', 'y', 'z']].to_numpy(float),
+                               [1.3, 1.4, 1.5])          # CB altloc A, not (9.9,...)
+
+    assert s.awsem_memory_chain_lengths() == [('A', 2)]
+
+
+def test_write_single_memory(tmp_path):
+    from molscene.parsers.awsem_gro import write_single_memory
+    s = Scene.from_pdb('molscene/data/1jge.pdb')  # 3 chains
+    mem = write_single_memory(s, name='query', directory=str(tmp_path))
+    content = open(mem).read()
+    assert content.startswith("[Target]\nquery\n\n[Memories]\n")
+    lengths = s.awsem_memory_chain_lengths()
+    # one [Memories] line per chain, with cumulative target start and gro_start=1
+    start = 1
+    for chain, length in lengths:
+        assert f"query_{chain}.gro {start} 1 {length} 20" in content
+        assert (tmp_path / f"query_{chain}.gro").exists()
+        start += length
+
 
 def test_get_sequence_1zbl():
     s = Scene.from_cif('molscene/data/1zbl.cif')

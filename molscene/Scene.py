@@ -59,64 +59,16 @@ _DNA_residues = {'DA': 'A', 'DC': 'C', 'DG': 'G', 'DT': 'T'}
 
 _RNA_residues = {'A': 'A', 'C': 'C', 'G': 'G', 'U': 'U'}
 
-_cif_tokenizer = re.compile(r"""'([^']*)'    |  # single-quoted → group 1
-                                "([^"]*)"    |  # double-quoted → group 2
-                                \#[^\n]*     |  # comment (no group)
-                                ([^\s'"#]+)     # unquoted → group 3
-                            """, re.VERBOSE)
-
-
 def _canonicalize_element_symbol(symbol):
     if isinstance(symbol, str) and symbol.isalpha() and symbol.isupper():
         return symbol[0] + symbol[1:].lower()
     return symbol
 
+
 def _read_cif_category(file_path, category):
-    """
-    Read a single loop category from a CIF file.
-
-    Parameters
-    ----------
-    file_path : str
-        Path to the CIF file.
-    category : str
-        The CIF category prefix to extract (e.g. '_atom_site', '_dssp_struct_summary').
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame with columns from the category.
-    """
-    data = []
-    header = []
-    in_section = False
-    prefix = category + '.'
-
-    with open(file_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-
-            if not line or line.startswith('#'):
-                continue
-
-            if line.startswith('loop_'):
-                in_section = False
-
-            elif line.startswith(prefix):
-                header.append(line.split('.')[-1])
-                in_section = True
-
-            elif in_section:
-                tokens = []
-                for m in _cif_tokenizer.finditer(line):
-                    sq, dq, word = m.group(1), m.group(2), m.group(3)
-                    val = sq if sq is not None else (dq if dq is not None else word)
-                    if val is not None:
-                        tokens.append(val)
-                if tokens:
-                    data.append(tokens)
-
-    return pandas.DataFrame(data, columns=header)
+    """Read a single ``loop_`` category (delegates to the cif parser)."""
+    from molscene.parsers.cif import read_cif_category
+    return read_cif_category(file_path, category)
 
 
 def _dihedral(p0, p1, p2, p3):
@@ -130,54 +82,6 @@ def _dihedral(p0, p1, p2, p3):
     x = np.dot(n1, n2)
     y = np.dot(m, n2)
     return -np.degrees(np.arctan2(y, x))
-
-
-def _pdb_atom_name_field(name, element) -> str:
-    """Justify an atom name into the 4-character PDB name field (cols 13-16).
-
-    Per the PDB convention the element symbol is right-justified in columns
-    13-14, so a name with a one-letter element and fewer than four characters
-    is shifted one column right (``" CA "``); two-letter elements and
-    digit-leading hydrogen names start in column 13 (``"FE  "``, ``"HD11"``).
-    """
-    name = str(name)
-    if len(name) >= 4:
-        return name[:4]
-    if len(str(element)) == 1 and not name[:1].isdigit():
-        return f" {name:<3}"
-    return f"{name:<4}"
-
-
-def _format_pdb_charge(charge) -> str:
-    """Format a formal charge into the 2-character PDB field (e.g. ``"2+"``).
-
-    Zero or unparseable charges yield two spaces. PDB stores a single signed
-    digit, so magnitudes are clamped to 9.
-    """
-    try:
-        c = int(round(float(charge)))
-    except (ValueError, TypeError):
-        return "  "
-    if c == 0:
-        return "  "
-    return f"{min(abs(c), 9)}{'+' if c > 0 else '-'}"
-
-
-def _parse_pdb_charge(field) -> float:
-    """Parse a PDB charge field (``"2+"``, ``"1-"``, ``"-1"`` or blank).
-       Charge uses the PDB "<digit><sign>" notation (e.g. "2+")"""
-    s = str(field).strip()
-    if not s:
-        return 0.0
-    if s[-1] in "+-":              # PDB form: digit then sign, e.g. "2+"
-        mag, sign = s[:-1].strip(), s[-1]
-        if mag.isdigit():
-            return float(mag) * (1.0 if sign == "+" else -1.0)
-        return 0.0
-    try:                            # tolerate plain signed integers, e.g. "-1"
-        return float(s)
-    except ValueError:
-        return 0.0
 
 
 class _FrameAccessor:
@@ -801,274 +705,95 @@ class Scene(pandas.DataFrame):
         return value
 
     @classmethod
+    def _from_parsed(cls, atoms, meta):
+        """Wrap ``(atoms_DataFrame, meta)`` from a parser/backend into a Scene,
+        applying any ``coordinate_frames`` carried in ``meta``."""
+        meta = dict(meta)
+        frames = meta.pop('coordinate_frames', None)
+        scene = cls(atoms, **meta)
+        if frames is not None:
+            scene.set_coordinate_frames(np.asarray(frames))
+        return scene
+
+    @classmethod
     def from_pdb(cls, file, **kwargs):
-        def pdb_line(line):
-            l = dict(recname=line[0:6].strip(),
-                     serial=line[6:11],
-                     name=line[12:16].strip(),
-                     altloc=line[16:17].strip(),
-                     resname=line[17:20].strip(),
-                     chain=line[21:22].strip(),
-                     resid=line[22:26],
-                     icode=line[26:27].strip(),
-                     x=line[30:38],
-                     y=line[38:46],
-                     z=line[46:54],
-                     occupancy=line[54:60].strip(),
-                     beta=line[60:66].strip(),
-                     element=line[76:78].strip(),
-                     charge=line[78:80].strip(),
-                     segment=line[72:76].strip() if len(line) > 72 else '')
-            return l
-
-        with open(file, 'r') as pdb:
-            lines = []
-            mod_lines = []
-            model_numbers = []
-            model_number = 1
-            for i, line in enumerate(pdb):
-                if len(line) > 6:
-                    header = line[:6]
-                    if header == 'ATOM  ' or header == 'HETATM':
-                        try:
-                            lines += [pdb_line(line)]
-                        except ValueError as e:
-                            logger.error("Malformed PDB atom record at line %d: %r", i, line.rstrip())
-                            raise ValueError(
-                                f"Could not parse PDB atom record at line {i}: {line.rstrip()!r}"
-                            ) from e
-                        model_numbers += [model_number]
-                    elif header == "MODRES":
-                        m = dict(recname=str(line[0:6]).strip(),
-                                 idCode=str(line[7:11]).strip(),
-                                 resname=str(line[12:15]).strip(),
-                                 chain=str(line[16:17]).strip(),
-                                 resid=int(line[18:22]),
-                                 icode=str(line[22:23]).strip(),
-                                 stdRes=str(line[24:27]).strip(),
-                                 comment=str(line[29:70]).strip())
-                        mod_lines += [m]
-                    elif header == "MODEL ":
-                        model_number = int(line[10:14])
-        pdb_atoms = pandas.DataFrame(lines)
-        pdb_atoms = pdb_atoms[['recname', 'serial', 'name', 'altloc',
-                               'resname', 'chain', 'resid', 'icode',
-                               'x', 'y', 'z', 'occupancy', 'beta',
-                               'element', 'charge', 'segment']]
-        
-        # Apply type conversions and set default values
-        pdb_atoms['serial'] = pandas.to_numeric(pdb_atoms['serial'], errors='coerce').fillna(0).astype(int)
-        pdb_atoms['resid'] = pandas.to_numeric(pdb_atoms['resid'], errors='coerce').fillna(0).astype(int)
-        pdb_atoms['x'] = pandas.to_numeric(pdb_atoms['x'], errors='coerce').fillna(0.0)
-        pdb_atoms['y'] = pandas.to_numeric(pdb_atoms['y'], errors='coerce').fillna(0.0)
-        pdb_atoms['z'] = pandas.to_numeric(pdb_atoms['z'], errors='coerce').fillna(0.0)
-        pdb_atoms['occupancy'] = pandas.to_numeric(pdb_atoms['occupancy'], errors='coerce').fillna(1.0)
-        pdb_atoms['beta'] = pandas.to_numeric(pdb_atoms['beta'], errors='coerce').fillna(1.0)
-        pdb_atoms['charge'] = pdb_atoms['charge'].map(_parse_pdb_charge)
-        pdb_atoms['model'] = model_numbers
-        pdb_atoms['molecule'] = 0
-
-        kwargs['source_file'] = str(Path(file).resolve())
-        kwargs['source_format'] = 'pdb'
-        if len(mod_lines) > 0:
-            kwargs.update(dict(modified_residues=pandas.DataFrame(mod_lines)))
-
-        return cls(pdb_atoms, **kwargs)
+        from molscene.parsers import pdb as _pdb
+        return cls._from_parsed(*_pdb.read_pdb(file, **kwargs))
 
     @classmethod
     def from_cif(cls, file_path, **kwargs):
-        """
-        Extracts only the _atom section from an mmCIF file.
-
-        Args:
-            file_path (str): Path to the CIF file.
-
-        Returns:
-            list: List of parsed atom data rows.
-        """
-
-        cif_atoms = _read_cif_category(file_path, '_atom_site')
-        
-        # Rename columns to pdb convention
-        # NOTE: resid uses auth_seq_id (author numbering), NOT label_seq_id.
-        # This follows the ProDy convention: resid/resnum always refers to the author's
-        # residue sequence number. For PDB files, this is the number from columns 23-26.
-        # For CIF files, auth_seq_id is the author's original numbering (may have gaps),
-        # while label_seq_id is CIF-internal sequential numbering (1-based, restarts per
-        # entity/chain). label_seq_id is kept as a separate column for users who need it.
-        _cif_pdb_rename = {'id': 'serial',
-                           'label_atom_id': 'name',
-                           'label_alt_id': 'altloc',
-                           'label_comp_id': 'resname',
-                           'label_asym_id': 'chain',
-                           'auth_seq_id': 'resid',
-                           'pdbx_PDB_ins_code': 'icode',
-                           'Cartn_x': 'x',
-                           'Cartn_y': 'y',
-                           'Cartn_z': 'z',
-                           'occupancy': 'occupancy',
-                           'B_iso_or_equiv': 'beta',
-                           'type_symbol': 'element',
-                           'pdbx_formal_charge': 'charge',
-                           'pdbx_PDB_model_num': 'model'}
-
-        cif_atoms = cif_atoms.rename(_cif_pdb_rename, axis=1)
-
-        # CIF uses '.' and '?' for missing/unknown values; replace with NA
-        cif_atoms = cif_atoms.replace({'.': pandas.NA, '?': pandas.NA})
-
-        # Column type conversions based on the mmCIF dictionary
-        # (https://mmcif.wwpdb.org/dictionaries/mmcif_pdbx_v50.dic/Categories/atom_site.html)
-        # All atom_site columns are listed below (using renamed names where applicable).
-        #
-        # int columns: {renamed_col: default_value}
-        #   id (serial)              — code/char in spec, always integral in practice
-        #   auth_seq_id (resid)      — code/char in spec, always integral in practice
-        #   pdbx_formal_charge (charge) — int, default 0
-        #   pdbx_PDB_model_num (model) — int, default 1
-        _int_cols = {'serial': 0, 'resid': 0, 'charge': 0, 'model': 1}
-        # float columns: {renamed_col: default_value}
-        #   Cartn_x/y/z (x/y/z)     — float
-        #   occupancy                — float, default 1.0
-        #   B_iso_or_equiv (beta)    — float
-        _float_cols = {'x': 0.0, 'y': 0.0, 'z': 0.0,
-                       'occupancy': 1.0, 'beta': 0.0}
-        # nullable int columns: int per spec but legitimately '.' for some records
-        #   label_seq_id             — int, '.' for HETATM records
-        _nullable_int_cols = ['label_seq_id']
-        # str columns: {col: default_value} — NA replaced with default
-        #   label_alt_id (altloc)    — code/char, default ''
-        #   pdbx_PDB_ins_code (icode) — code/char, default ''
-        #   group_PDB                — ucode/char ('ATOM' or 'HETATM')
-        #   label_entity_id          — code/char
-        #   auth_comp_id             — code/char
-        #   auth_asym_id             — code/char
-        #   auth_atom_id             — code/char
-        # str columns that keep NA if absent (no default needed):
-        #   label_atom_id (name)     — atcode/char
-        #   label_comp_id (resname)  — ucode/char
-        #   label_asym_id (chain)    — code/char
-        #   type_symbol (element)    — code/char
-        _str_defaults = {'altloc': '', 'icode': '', 'group_PDB': '',
-                         'label_entity_id': '', 'auth_comp_id': '',
-                         'auth_asym_id': '', 'auth_atom_id': ''}
-
-        for col, default in _int_cols.items():
-            if col in cif_atoms.columns:
-                cif_atoms[col] = pandas.to_numeric(
-                    cif_atoms[col], errors='coerce').fillna(default).astype(int)
-            else:
-                cif_atoms[col] = default
-
-        for col, default in _float_cols.items():
-            if col in cif_atoms.columns:
-                cif_atoms[col] = pandas.to_numeric(
-                    cif_atoms[col], errors='coerce').fillna(default)
-
-        for col in _nullable_int_cols:
-            if col in cif_atoms.columns:
-                cif_atoms[col] = pandas.to_numeric(
-                    cif_atoms[col], errors='coerce').astype('Int64')
-
-        for col, default in _str_defaults.items():
-            if col in cif_atoms.columns:
-                cif_atoms[col] = cif_atoms[col].fillna(default)
-
-        # CIF has no PDB-style segment column (cols 73-76). Since molscene maps
-        # chain = label_asym_id (the ProDy convention; see the resid note above),
-        # the author chain id (auth_asym_id) is the natural segment: it groups the
-        # label_asym_id chains that share a single author-assigned chain. This
-        # matches ProDy, which sets segment = auth_asym_id. (label_entity_id is an
-        # entity grouping, not a segment, so it is kept as its own column instead.)
-        if 'auth_asym_id' in cif_atoms.columns:
-            cif_atoms['segment'] = cif_atoms['auth_asym_id']
-        else:
-            cif_atoms['segment'] = ''
-
-        kwargs['source_file'] = str(Path(file_path).resolve())
-        kwargs['source_format'] = 'cif'
-        return cls(cif_atoms, **kwargs)
+        from molscene.parsers import cif as _cif
+        return cls._from_parsed(*_cif.read_cif(file_path, **kwargs))
 
     @classmethod
-    def from_gro(cls, gro, **kwargs):
-        raise NotImplementedError
+    def from_awsem_gro(cls, path, **kwargs):
+        """Read an ``awsem_gro`` (AWSEM fragment-memory) file into a Scene."""
+        from molscene.parsers import awsem_gro as _ag
+        return cls._from_parsed(*_ag.read_awsem_gro(path, **kwargs))
 
     @classmethod
-    def from_fixPDB(cls, filename=None, pdbfile=None, pdbxfile=None, url=None, pdbid=None,
-                    **kwargs):
-        """Uses the pdbfixer library to fix a pdb file, replacing non standard residues, removing
-        hetero-atoms and adding missing hydrogens. The input is a pdb file location,
-        the output is a fixer object, which is a pdb in the openawsem format."""
-        import pdbfixer
+    def from_object(cls, obj):
+        """Build a Scene from a recognized foreign object (ProDy ``AtomGroup``,
+        mdtraj ``Trajectory``, ``PDBFixer`` ...)."""
+        from molscene import backends
+        return cls._from_parsed(*backends.from_object(obj))
 
-        filename=str(filename) if filename is not None else None
-        pdbfile=str(pdbfile) if pdbfile is not None else None
-        pdbxfile=str(pdbxfile) if pdbxfile is not None else None
-        url=str(url) if url is not None else None
-        pdbid=str(pdbid) if pdbid is not None else None
+    @classmethod
+    def from_prody(cls, atomgroup) -> "Scene":
+        """Build a Scene from a ProDy ``AtomGroup``/``Selection`` (extra ``prody``)."""
+        return cls.from_object(atomgroup)
 
-        fixer = pdbfixer.PDBFixer(filename=filename, pdbfile=pdbfile, pdbxfile=pdbxfile, url=url, pdbid=pdbid)
-        fixer.findMissingResidues()
-        chains = list(fixer.topology.chains())
-        keys = fixer.missingResidues.keys()
-        for key in list(keys):
-            chain_tmp = chains[key[0]]
-            if key[1] == 0 or key[1] == len(list(chain_tmp.residues())):
-                del fixer.missingResidues[key]
+    @classmethod
+    def from_mdtraj(cls, trajectory) -> "Scene":
+        """Build a Scene from an mdtraj ``Trajectory`` (extra ``mdtraj``)."""
+        return cls.from_object(trajectory)
 
-        fixer.findNonstandardResidues()
-        fixer.replaceNonstandardResidues()
-        fixer.removeHeterogens(keepWater=False)
-        fixer.findMissingAtoms()
-        fixer.addMissingAtoms()  # Warning: importing 'simtk.openmm' is deprecated.  Import 'openmm' instead.
-        fixer.addMissingHydrogens(7.0)
+    def to_prody(self):
+        """Convert this Scene to a ProDy ``AtomGroup`` (extra ``prody``)."""
+        from molscene import backends
+        return backends.to_object(self, 'prody')
 
-        return cls.from_fixer(fixer, **kwargs)
+    def to_mdtraj(self):
+        """Convert this Scene to an mdtraj ``Trajectory`` (extra ``mdtraj``)."""
+        from molscene import backends
+        return backends.to_object(self, 'mdtraj')
 
     @classmethod
     def from_fixer(cls, fixer, **kwargs):
         """Parse a PDBFixer object (openmm topology + positions) into a Scene."""
-        import pdbfixer
-        pdb = fixer
-        cols = ['recname', 'serial', 'name', 'altloc',
-                'resname', 'chain', 'resid', 'icode',
-                'x', 'y', 'z', 'occupancy', 'beta',
-                'element', 'charge']
-        data = []
+        from molscene.backends.pdbfixer_backend import PDBFixerBackend
+        atoms, meta = PDBFixerBackend.from_object(fixer)
+        meta.update(kwargs)
+        return cls._from_parsed(atoms, meta)
 
-        for atom, pos in zip(pdb.topology.atoms(), pdb.positions):
-            residue = atom.residue
-            chain = residue.chain
-            pos = pos.value_in_unit(pdbfixer.pdbfixer.unit.angstrom)
-            data += [dict(zip(cols, ['ATOM', int(atom.id), atom.name, '',
-                                     residue.name, chain.id, int(residue.id), '',
-                                     pos[0], pos[1], pos[2], 0, 0,
-                                     atom.element.symbol, '']))]
-        atom_list = pandas.DataFrame(data)
-        atom_list = atom_list[cols]
-        atom_list.index = atom_list['serial']
-        return cls(atom_list, **kwargs)
-    
     @classmethod
-    def from_file(cls, filename):
-        if filename.endswith('.pdb'):
-            return cls.from_pdb(filename)
-        elif filename.endswith('.cif'):
-            return cls.from_cif(filename)
-        elif filename.endswith('.gro'):
-            return cls.from_gro(filename)
-        else:
-            raise ValueError('Unknown file format')
-        
-    def to_file(self, filename):
-        if filename.endswith('.pdb'):
-            self.write_pdb(filename)
-        elif filename.endswith('.cif'):
-            self.write_cif(filename)
-        elif filename.endswith('.gro'):
-            self.write_gro(filename)
-        else:
-            raise ValueError('Unknown file format')
+    def from_fixPDB(cls, filename=None, pdbfile=None, pdbxfile=None, url=None, pdbid=None,
+                    isolated=False, chain=None, **kwargs):
+        """Clean a structure with PDBFixer (replace nonstandard residues, remove
+        heterogens, add missing atoms/hydrogens) and parse it into a Scene.
+
+        ``isolated=True`` runs the cleanup in a child process so OpenMM memory is
+        reclaimed on exit (useful for batch cleaning); it needs a ``filename`` and
+        may filter to ``chain``.
+        """
+        from molscene.backends import pdbfixer_backend as _fix
+        if isolated:
+            if filename is None:
+                raise ValueError("from_fixPDB(isolated=True) requires a filename")
+            cleaned = _fix.repair_pdb(filename, chain=chain)
+            return cls.from_pdb(str(cleaned), **kwargs)
+        fixer = _fix.clean(filename=filename, pdbfile=pdbfile, pdbxfile=pdbxfile,
+                           url=url, pdbid=pdbid)
+        return cls.from_fixer(fixer, **kwargs)
+
+    @classmethod
+    def from_file(cls, filename, format=None):
+        from molscene import parsers
+        return cls._from_parsed(*parsers.read(filename, format=format))
+
+    def to_file(self, filename, format=None):
+        from molscene import parsers
+        parsers.write(self, filename, format=format)
 
     @classmethod
     def concatenate(cls, scene_list):
@@ -1090,215 +815,21 @@ class Scene(pandas.DataFrame):
         return cls(model)
 
     # Writing
-    def _format_pdb_atoms(self) -> str:
-        """Return spec-compliant 80-column PDB ATOM/HETATM lines.
-
-        Every field the ATOM record can hold is written (record name, serial,
-        atom name, altloc, resname, chain, resid, icode, x/y/z, occupancy,
-        temperature factor, element and formal charge) so the output
-        round-trips through :meth:`from_pdb`. Missing columns fall back to
-        sensible defaults; the ``chain`` column is authoritative.
-        """
-        t = self.copy()
-        defaults = {
-            'recname': 'ATOM', 'name': 'X', 'altloc': '', 'resname': '',
-            'chain': 'A', 'resid': 1, 'icode': '', 'occupancy': 0.0,
-            'beta': 0.0, 'element': '', 'charge': 0,
-        }
-        for col, default in defaults.items():
-            if col not in t:
-                t[col] = default
-        if 'serial' not in t:
-            t['serial'] = np.arange(1, len(self) + 1)
-        for axis in ('x', 'y', 'z'):
-            assert axis in t.columns, f'Coordinate {axis} not in particle definition'
-
-        lines = []
-        for atom in t.itertuples(index=False):
-            recname = str(getattr(atom, 'recname', 'ATOM')) or 'ATOM'
-            altloc = (str(atom.altloc)[:1] if atom.altloc != '' else ' ')
-            icode = (str(atom.icode)[:1] if atom.icode != '' else ' ')
-            line = (
-                f"{recname:<6}"
-                f"{int(atom.serial) % 100000:>5}"
-                " "
-                f"{_pdb_atom_name_field(atom.name, atom.element):<4}"
-                f"{altloc:1}"
-                f"{str(atom.resname):>3.3}"
-                " "
-                f"{str(atom.chain)[:1] or ' ':1}"
-                f"{int(atom.resid) % 10000:>4}"
-                f"{icode:1}"
-                "   "
-                f"{atom.x:>8.3f}{atom.y:>8.3f}{atom.z:>8.3f}"
-                f"{atom.occupancy:>6.2f}{atom.beta:>6.2f}"
-                "          "
-                f"{str(atom.element):>2.2}"
-                f"{_format_pdb_charge(atom.charge):>2}"
-            )
-            assert len(line) == 80, f'PDB line is not 80 columns ({len(line)}):\n{line}'
-            lines.append(line)
-        return '\n'.join(lines) + '\n' if lines else ''
-
     def write_pdb(self, file_name=None, verbose=False):
+        """Serialize to PDB; multi-frame coordinates become ``MODEL`` blocks.
+
+        Returns an :class:`io.StringIO` when ``file_name`` is ``None``.
         """
-        Serialize to PDB.
-
-        If multi-frame coordinates have been attached (see
-        :meth:`set_coordinate_frames`), each frame is written as a separate
-        ``MODEL`` block — the result is a standard multi-model PDB that
-        PyMOL/VMD/ChimeraX load as an animatable trajectory. Single-frame
-        scenes produce a plain ATOM table with no ``MODEL`` records.
-        """
-        # TODO Add connectivity output
-        if verbose:
-            logger.info("Writing pdb file (%d atoms): %s", len(self), file_name)
-
-        if 'coordinate_frames' in self._meta:
-            frames = self.get_coordinate_frames()
-            chunks = []
-            scratch = self.copy(deep=True)
-            scratch._meta.pop('coordinate_frames', None)
-            for i, frame in enumerate(frames):
-                scratch.set_coordinates(frame)
-                chunks.append(f'MODEL     {i + 1:>4d}\n')
-                chunks.append(scratch._format_pdb_atoms())
-                chunks.append('ENDMDL\n')
-            chunks.append('END\n')
-            lines = ''.join(chunks)
-        else:
-            lines = self._format_pdb_atoms()
-
-        if file_name is None:
-            return io.StringIO(lines)
-        else:
-            with open(file_name, 'w+') as out:
-                out.write(lines)
+        from molscene.parsers import pdb as _pdb
+        text = _pdb.write_pdb(self, file_name, verbose=verbose)
+        return io.StringIO(text) if file_name is None else None
 
     def write_cif(self, file_name=None, verbose=False):
-        """Serialize to a PDBx/mmCIF ``_atom_site`` loop.
-
-        Each canonical column is written into both the ``label_*`` and
-        ``auth_*`` fields so the file round-trips through :meth:`from_cif`
-        (``label_alt_id`` carries ``altloc``; ``pdbx_PDB_ins_code`` carries
-        ``icode``).
-
-        Parameters
-        ----------
-        file_name : str or path-like, optional
-            Destination path. When ``None``, the CIF text is returned as an
-            :class:`io.StringIO` instead of being written to disk.
-        verbose : bool, optional
-            If ``True``, print the atom count and destination.
-
-        Returns
-        -------
-        io.StringIO or None
-            A ``StringIO`` of the CIF text when ``file_name`` is ``None``,
-            otherwise ``None``.
-        """
-        # TODO Add connectivity output
-        if verbose:
-            logger.info("Writing cif file (%d atoms): %s", len(self), file_name)
-
-        # Fill empty columns
-        pdbx_table = self.copy()
-        pdbx_table['serial'] = np.arange(1, len(self) + 1) if 'serial' not in pdbx_table else pdbx_table['serial']
-        pdbx_table['name'] = 'A' if 'name' not in pdbx_table else pdbx_table['name']
-        pdbx_table['altloc'] = '?' if 'altloc' not in pdbx_table else pdbx_table['altloc']
-        pdbx_table['resname'] = 'R' if 'resname' not in pdbx_table else pdbx_table['resname']
-        pdbx_table['chain'] = 'C' if 'chain' not in pdbx_table else pdbx_table['chain']
-        pdbx_table['resid'] = 1 if 'resid' not in pdbx_table else pdbx_table['resid']
-        pdbx_table['resIC'] = 1 if 'resIC' not in pdbx_table else pdbx_table['resIC']
-        pdbx_table['icode'] = '' if 'icode' not in pdbx_table else pdbx_table['icode']
-        assert 'x' in pdbx_table.columns, 'Coordinate x not in particle definition'
-        assert 'y' in pdbx_table.columns, 'Coordinate x not in particle definition'
-        assert 'z' in pdbx_table.columns, 'Coordinate x not in particle definition'
-        pdbx_table['occupancy'] = 0 if 'occupancy' not in pdbx_table else pdbx_table['occupancy']
-        pdbx_table['beta'] = 0 if 'beta' not in pdbx_table else pdbx_table['beta']
-        pdbx_table['element'] = 'C' if 'element' not in pdbx_table else pdbx_table['element']
-        pdbx_table['model'] = 0 if 'model' not in pdbx_table else pdbx_table['model']
-        pdbx_table['charge'] = 0 if 'charge' not in pdbx_table else pdbx_table['charge']
-
-        # If the column is a string convert it to a float
-        for col in ['serial', 'resid', 'resIC', 'model','charge']:
-            pdbx_table[col] = pandas.to_numeric(pdbx_table[col], errors='coerce').fillna(0).astype(int)
-        for col in ['x', 'y', 'z', 'occupancy', 'beta']:
-            pdbx_table[col] = pandas.to_numeric(pdbx_table[col], errors='coerce').fillna(0.0)
-            
-        #If the column is a string convert and empty string to a dot
-        for col in ['name', 'altloc', 'resname', 'chain', 'icode', 'element']:
-            pdbx_table[col] = pdbx_table[col].str.strip().replace('', '.')
-
-        lines = ""
-        lines += "data_pdbx\n"
-        lines += "#\n"
-        lines += "loop_\n"
-        lines += "_atom_site.group_PDB\n"
-        lines += "_atom_site.id\n"
-        lines += "_atom_site.label_atom_id\n"
-        lines += "_atom_site.label_comp_id\n"
-        lines += "_atom_site.label_asym_id\n"
-        lines += "_atom_site.label_seq_id\n"
-        lines += "_atom_site.label_alt_id\n"
-        lines += "_atom_site.auth_atom_id\n"
-        lines += "_atom_site.auth_comp_id\n"
-        lines += "_atom_site.auth_asym_id\n"
-        lines += "_atom_site.auth_seq_id\n"
-        lines += "_atom_site.pdbx_PDB_ins_code\n"
-        lines += "_atom_site.Cartn_x\n"
-        lines += "_atom_site.Cartn_y\n"
-        lines += "_atom_site.Cartn_z\n"
-        lines += "_atom_site.occupancy\n"
-        lines += "_atom_site.B_iso_or_equiv\n"
-        lines += "_atom_site.type_symbol\n"
-        lines += "_atom_site.pdbx_formal_charge\n"
-        lines += "_atom_site.pdbx_PDB_model_num\n"
-
-        pdbx_table['line'] = 'ATOM'
-
-        def cif_quote(val):
-            if val is np.nan:
-                return '.'
-            if not isinstance(val, str):
-                val = str(val)
-            if "'" in val and '"' in val:
-                # If both quotes are present (unusual), use double quotes and replace double quotes with single quotes
-                return '"' + val.replace('"', "'") + '"'
-            elif "'" in val:
-                return '"' + val + '"'
-            elif '"' in val:
-                return "'" + val + "'"
-            elif any(c.isspace() for c in val) or val == '' or val.startswith('#') or val.startswith(';'):
-                #quote the string if it contains spaces or is empty
-                return '"' + val + '"'
-            else:
-                return val
-
-        # The columns are written in the order declared in the loop_ header
-        # above. The first name/resname/chain/resid block fills the label_*
-        # fields (label_seq_id := resid) and label_alt_id := altloc; the second
-        # block fills the auth_* fields (auth_seq_id := resid) and
-        # pdbx_PDB_ins_code := icode. altloc and icode occupy *different* CIF
-        # fields, so both must appear (writing icode into the label_alt_id slot
-        # silently drops altloc on round-trip).
-        for col in ['serial',
-                    'name', 'resname', 'chain', 'resid', 'altloc',
-                    'name', 'resname', 'chain', 'resid', 'icode', #duplicated for auth vs label
-                    'x', 'y', 'z',
-                    'occupancy', 'beta',
-                    'element', 'charge', 'model']:
-            pdbx_table['line'] += " "
-            pdbx_table['line'] += pdbx_table[col].apply(cif_quote)
-        pdbx_table['line'] += '\n'
-        lines += ''.join(pdbx_table['line'])
-        lines += '#\n'
-
-        if file_name is None:
-            return io.StringIO(lines)
-        else:
-            with open(file_name, 'w+') as out:
-                out.write(lines)
+        """Serialize to a PDBx/mmCIF ``_atom_site`` loop (round-trips via
+        :meth:`from_cif`). Returns an :class:`io.StringIO` when ``file_name`` is ``None``."""
+        from molscene.parsers import cif as _cif
+        text = _cif.write_cif(self, file_name, verbose=verbose)
+        return io.StringIO(text) if file_name is None else None
 
     def write_gro(self, file_name, box_size=None, verbose=False):
         """
@@ -1402,6 +933,26 @@ class Scene(pandas.DataFrame):
             if verbose:
                 logger.info("Writing chain '%s' to %s", chain_id, output_filename)
             chain_scene.write_gro(output_filename, box_size=box_size, verbose=verbose)
+
+    def awsem_memory_chain_lengths(self, chain=None):
+        """Ordered ``[(chain, n_residues), ...]`` of regular protein residues."""
+        from molscene.parsers import awsem_gro as _ag
+        return _ag.chain_lengths(self, chain)
+
+    def write_awsem_gro(self, file_name=None, chain=None):
+        """Write an AWSEM fragment-memory (``awsem_gro``) file.
+
+        The bespoke "Structure-Based gro" consumed by OpenAWSEM's
+        ``fragment_memory_term`` -- *not* a standard GROMACS gro.  Returns an
+        :class:`io.StringIO` when ``file_name`` is ``None``.
+        """
+        from molscene.parsers import awsem_gro as _ag
+        text = _ag.write_awsem_gro(self, file_name, chain=chain)
+        return io.StringIO(text) if file_name is None else None
+
+    def write_awsem_memory_gro(self, file_name=None, chain=None):
+        """Deprecated alias for :meth:`write_awsem_gro`."""
+        return self.write_awsem_gro(file_name, chain=chain)
 
     # get methods
     def get_coordinates(self):

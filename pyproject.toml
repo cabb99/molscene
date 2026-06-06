@@ -61,6 +61,28 @@ dependencies = [
 selection = [
   "molselect>=0.1",
 ]
+# Interoperate with ProDy AtomGroups (Scene.from_prody / Scene.to_prody),
+# the structure backend used by Frustratometer and AWSEMML.
+prody = [
+  "prody>=2.0",
+]
+# PDBFixer-based structure cleanup: Scene.from_fixPDB and the isolated-process
+# repair_pdb / repair_pdbs (molscene.backends.pdbfixer_backend).
+fixer = [
+  "pdbfixer",
+  "openmm",
+]
+# Interoperate with mdtraj Trajectories (Scene.from_mdtraj / Scene.to_mdtraj).
+mdtraj = [
+  "mdtraj",
+]
+all = [
+  "molselect>=0.1",
+  "prody>=2.0",
+  "pdbfixer",
+  "openmm",
+  "mdtraj",
+]
 test = [
   "pytest>=6.1.2",
   "pytest-cov",
