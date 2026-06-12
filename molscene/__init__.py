@@ -10,6 +10,7 @@ from .matching import (
     SequenceMatching,
     as_matching,
 )
+from . import contacts  # distance-map / virtual-Cβ geometry kernels
 from . import parsers, backends  # register file-format parsers and object backends
 
 from ._version import __version__
@@ -22,6 +23,7 @@ __all__ = [
     "ColumnMatching",
     "SequenceMatching",
     "as_matching",
+    "contacts",
     "parsers",
     "backends",
     "__version__",

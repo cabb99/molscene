@@ -831,6 +831,88 @@ def test_distance_map():
     np.testing.assert_allclose(sorted(dists), sorted(expected_dists))
 
 
+def _toy_protein():
+    """Three residues (chain A: 1,2; chain B: 1), each with N, CA, C, CB at
+    non-collinear backbone geometry."""
+    import pandas as pd
+    rng = np.random.default_rng(0)
+    rows = []
+    for chain, resid, base in [('A', 1, (0, 0, 0)), ('A', 2, (8, 0, 0)),
+                               ('B', 1, (0, 0, 15))]:
+        bx, by, bz = base
+        offs = {'N': (0.0, 1.0, 0.0), 'CA': (1.0, 0.0, 0.0),
+                'C': (2.0, 1.0, 0.2), 'CB': (1.0, -1.0, 0.5)}
+        resname = 'GLY' if (chain == 'A' and resid == 2) else 'ALA'
+        for name, (ox, oy, oz) in offs.items():
+            if name == 'CB' and resname == 'GLY':
+                continue  # glycine has no CB
+            rows.append(dict(name=name, resname=resname, chain=chain, resid=resid,
+                             x=bx + ox, y=by + oy, z=bz + oz))
+    return Scene(pd.DataFrame(rows))
+
+
+def test_distance_map_selection():
+    s = _toy_protein()
+    coords = s[['x', 'y', 'z']].to_numpy()
+
+    # default still equals the dense all-atom map (back-compat) ...
+    np.testing.assert_allclose(s.distance_map(), s.distance_map_dense())
+    # ... and the deprecated threshold kwarg still works.
+    np.testing.assert_allclose(s.distance_map(threshold=None), s.distance_map_dense())
+
+    # self-map of a mask selection
+    ca = s['name'] == 'CA'
+    dm_ca = s.distance_map(ca)
+    assert dm_ca.shape == (3, 3)
+    np.testing.assert_allclose(np.diag(dm_ca), 0, atol=1e-9)
+
+    # cross-map: chain A CA  vs  chain B CA
+    selA = (s['name'] == 'CA') & (s['chain'] == 'A')
+    selB = (s['name'] == 'CA') & (s['chain'] == 'B')
+    cross = s.distance_map(selA, selB)
+    a = s.loc[selA][['x', 'y', 'z']].to_numpy()
+    b = s.loc[selB][['x', 'y', 'z']].to_numpy()
+    assert cross.shape == (2, 1)
+    np.testing.assert_allclose(cross, np.linalg.norm(a[:, None] - b[None], axis=2))
+
+    # sparse self-map agrees with the dense map and respects the cutoff
+    row, col, data, shape = s.distance_map(sparse=True, cutoff=5.0)
+    assert shape == (len(s), len(s))
+    dense = s.distance_map()
+    assert np.all(data <= 5.0 + 1e-9)
+    for r, c, d in zip(row, col, data):
+        assert abs(dense[r, c] - d) < 1e-9
+
+    # by='residue', reduce='min' equals a brute-force per-residue minimum
+    rm = s.distance_map(by='residue', reduce='min')
+    res = s['residue'].to_numpy()
+    uniq = np.unique(res)
+    brute = np.array([[np.linalg.norm(coords[res == ri][:, None]
+                                      - coords[res == rj][None], axis=2).min()
+                       for rj in uniq] for ri in uniq])
+    np.testing.assert_allclose(rm, brute)
+
+    # sparse residue-min matches the dense residue map within the cutoff
+    rr, cc, dd, ss = s.distance_map(by='residue', reduce='min', sparse=True, cutoff=50.0)
+    m = np.full(ss, np.inf)
+    for r, c, d in zip(rr, cc, dd):
+        m[r, c] = d
+    off_diag = ~np.eye(len(uniq), dtype=bool) & (brute <= 50.0)
+    np.testing.assert_allclose(m[off_diag], brute[off_diag])
+
+
+def test_virtual_cb():
+    s = _toy_protein()
+    vcb = s.virtual_cb()
+    # one Cβ per residue (including the glycine, which had no explicit CB)
+    assert len(vcb) == 3
+    assert set(vcb['name']) == {'CB'}
+    assert np.isfinite(vcb[['x', 'y', 'z']].to_numpy()).all()
+    # composable: CB_force-style contact map
+    cb_map = s.virtual_cb().distance_map()
+    assert cb_map.shape == (3, 3)
+
+
 def test_prody_bridge_roundtrip():
     import pytest
     prody = pytest.importorskip("prody")
