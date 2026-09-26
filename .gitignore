@@ -134,3 +134,6 @@ nohup.out
 
 .github/copilot-instructions.md
 /recipe
+.history/
+archive/
+integration_plan/
