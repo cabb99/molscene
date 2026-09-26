@@ -13,9 +13,7 @@ from pathlib import Path
 import pandas
 
 from .registry import FormatRegistry
-
-# Atoms required for a residue to count as a "regular" protein residue.
-_AWSEM_BACKBONE = {"N", "CA", "C"}
+from ..contacts import BACKBONE_ATOMS
 
 
 def _residue_groups(frame):
@@ -27,7 +25,7 @@ def _residue_groups(frame):
     """
     for (chain, resid, _icode), group in frame.groupby(
             ["chain", "resid", "icode"], sort=False):
-        if _AWSEM_BACKBONE <= set(group["name"]):
+        if BACKBONE_ATOMS <= set(group["name"]):
             yield chain, resid, group
 
 

@@ -231,8 +231,34 @@ A single scene can carry a stack of coordinate frames:
     True
     >>> round(float(D[0, 1]), 1), round(float(D[0, 2]), 1)
     (3.0, 4.0)
-    >>> pairs, dists = pts.distance_map_sparse(3.5)
-    >>> pairs.shape[1] == 2 and len(pairs) == len(dists)
+    >>> contacts = pts.distance_map(sparse=True, cutoff=3.5)
+    >>> contacts
+    SparseMatrix(distance, nnz=2, shape=(3, 3))
+    >>> row, col, data, shape = contacts
+    >>> sorted(zip(row.tolist(), col.tolist()))
+    [(0, 1), (1, 0)]
+    >>> bool(np.isinf(contacts.to_dense()[0, 2]))  # farther than the cutoff
+    True
+
+Selections and per-residue aggregation:
+
+.. code-block:: python
+
+    >>> s = Scene.from_pdb('molscene/data/1zir.pdb').select('protein')
+    >>> s.distance_map('name CA').shape == (len(s.select('name CA')),) * 2
+    True
+    >>> D = s.distance_map(by='residue')          # min-distance contact map
+    >>> bool((D >= 0).all() and np.allclose(np.diag(D), 0))
+    True
+
+A reconstructed Cβ for every residue, glycines included:
+
+.. code-block:: python
+
+    >>> cb = s.virtual_cb()
+    >>> set(cb['name'])
+    {'CB'}
+    >>> cb.distance_map().shape == (len(cb), len(cb))
     True
 
 

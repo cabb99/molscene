@@ -223,10 +223,47 @@ morph movie):
 Distance maps
 -------------
 
+``distance_map`` takes one or two selections — a molselect string, a sub-Scene,
+a boolean mask, or an index array:
+
 .. code-block:: python
 
-    D = scene.distance_map()                       # dense (N, N) matrix
-    pairs, dists = scene.distance_map_sparse(5.0)  # only pairs within 5 Å
+    D = scene.distance_map()                    # dense (N, N) matrix
+    D = scene.distance_map("name CA")           # CA-CA self map
+    D = scene.distance_map("chain A", "chain B")  # rectangular interface map
+
+Pass ``by`` to aggregate the atom-atom distances per group — the classic
+minimum-distance contact map, or a chain-chain interface map:
+
+.. code-block:: python
+
+    D = scene.distance_map(by="residue")                 # per-residue minimum
+    D = scene.distance_map(by="residue", reduce="max")   # or 'min' / 'mean'
+    D = scene.distance_map(by="chain")
+
+For large structures, ``sparse=True`` keeps only pairs within ``cutoff`` and
+returns a :class:`~molscene.sparse.SparseMatrix`, which unpacks as
+``row, col, data, shape``:
+
+.. code-block:: python
+
+    contacts = scene.distance_map(sparse=True, cutoff=8.0)
+    len(contacts)                       # number of stored pairs
+    row, col, data, shape = contacts    # the underlying COO arrays
+    contacts.to_dense()                 # absent pairs are inf, diagonal 0
+    contacts.to_dense(fill=0)           # or 0, for a boolean contact map
+    contacts.filter_cutoff(6.0)         # narrow without re-running the search
+
+An absent pair means *farther than the cutoff*, not distance zero, which is why
+``to_dense`` fills unstored entries with ``inf`` by default.
+
+Residues lacking an explicit Cβ (glycines, or coarse-grained models) can be given
+a reconstructed one built from the backbone N, CA and C atoms:
+
+.. code-block:: python
+
+    cb = scene.virtual_cb()             # one Cβ pseudo-atom per residue
+    D = cb.distance_map()               # the AWSEM CB_force contact map
 
 Metadata
 --------

@@ -6,14 +6,17 @@ Python library to allow easy handling of coordinate files for molecular dynamics
 import pandas
 import numpy as np
 import io
+import numbers
 import tempfile
+import warnings
 from typing import Union, Tuple, Sequence, List
 from pathlib import Path
 import re
-from scipy.spatial import cKDTree, distance
 import logging
 from . import utils
 from . import contacts
+from .contacts import BACKBONE_ATOMS as _BACKBONE_ATOMS
+from .sparse import SparseMatrix
 from .bonds import compute_bonds as _compute_bonds
 from .data.element_info import element_info
 from .transformation import Transformation
@@ -1226,7 +1229,9 @@ class Scene(pandas.DataFrame):
         """Resolve a selection argument to a sub-:class:`Scene`.
 
         Accepts ``None`` (the whole Scene), a molselect string, an existing
-        ``Scene``, or a boolean mask / index array understood by ``DataFrame.loc``.
+        ``Scene``, or a boolean mask / index array.  Index arrays hold ``.loc``
+        *labels*, not positions: a sub-Scene keeps the labels of its parent, so
+        the labels of ``scene.select(...)`` are generally not ``0..n-1``.
         """
         if selection is None:
             return self
@@ -1234,44 +1239,47 @@ class Scene(pandas.DataFrame):
             return selection
         if isinstance(selection, str):
             return self.select(selection)
-        return Scene(self.loc[selection].copy(), **self._meta)
+        return self._subset(selection)
 
     def distance_map(self, selection=None, complementary_selection=None, *,
                      sparse=False, cutoff=None, by=None, reduce="min",
-                     threshold=_DM_UNSET) -> Union[np.ndarray, tuple]:
+                     threshold=_DM_UNSET) -> Union[np.ndarray, "SparseMatrix"]:
         """Distance map between two atom selections.
 
         Parameters
         ----------
         selection, complementary_selection : None | str | Scene | mask, optional
             Atom selections (a molselect string, a sub-``Scene``, a boolean mask,
-            or an index array; ``None`` = all atoms).  When
+            or an index array of ``.loc`` labels; ``None`` = all atoms).  When
             ``complementary_selection`` is ``None`` the result is the **symmetric
             self-map** of ``selection``; otherwise it is the **rectangular
             cross-map** between ``selection`` (rows) and ``complementary_selection``
             (cols).
         sparse : bool, optional
             If ``False`` (default) return a dense ``ndarray``.  If ``True`` return a
-            sparse ``(row, col, data, shape)`` tuple holding only pairs whose
-            distance is ``<= cutoff``.
+            :class:`~molscene.sparse.SparseMatrix` holding only pairs whose distance
+            is ``<= cutoff``.  It unpacks as ``row, col, data, shape``.
         cutoff : float, optional
-            Required when ``sparse=True``.
-        by : {None, 'residue'}, optional
-            If ``'residue'``, aggregate atom-atom distances to a per-residue map
-            (grouping on the ``residue`` column) using ``reduce`` — i.e. the
-            classic minimum-distance contact map.
+            Required when ``sparse=True``, and rejected otherwise — a dense map is
+            never truncated.
+        by : str, optional
+            Column to aggregate atom-atom distances by, e.g. ``'residue'`` for the
+            classic minimum-distance contact map or ``'chain'`` for a chain-chain
+            interface map.  ``None`` (default) keeps the atom-level map.
         reduce : {'min', 'max', 'mean'}, optional
-            Reduction used when ``by='residue'`` (default ``'min'``).
+            Reduction used when ``by`` is set (default ``'min'``).  Only ``'min'``
+            is available together with ``sparse=True``: a maximum or mean taken over
+            the pairs inside the cutoff is not the maximum or mean of the group pair.
         threshold : optional
-            Deprecated back-compat shim for the old ``distance_map(threshold=...)``
-            signature: ``None`` → dense all-atom matrix; ``float`` → legacy sparse
-            ``(pairs, dists)`` from :meth:`distance_map_sparse`.
+            Deprecated alias for the old ``distance_map(threshold=...)`` signature:
+            ``None`` -> dense all-atom matrix; ``float`` -> legacy sparse
+            ``(pairs, dists)`` from :meth:`distance_map_sparse`.  Cannot be combined
+            with any other argument.
 
         Returns
         -------
-        numpy.ndarray or tuple
-            Dense ``(L, M)`` distance matrix, or a sparse
-            ``(row, col, data, shape)`` tuple.
+        numpy.ndarray or SparseMatrix
+            Dense ``(L, M)`` distance matrix, or a sparse map.
 
         Examples
         --------
@@ -1281,15 +1289,37 @@ class Scene(pandas.DataFrame):
         >>> s.distance_map(by="residue", reduce="min",     # min-distance contact map
         ...                sparse=True, cutoff=12.0)
         """
-        # Backwards-compatible threshold API.
+        # The pre-selection signature was distance_map(threshold=None), so the
+        # first positional argument used to be the threshold.
+        if isinstance(selection, numbers.Real) and not isinstance(selection, bool):
+            selection, threshold = None, selection
+
         if threshold is not _DM_UNSET:
+            warnings.warn(
+                "distance_map(threshold=...) is deprecated; use "
+                "distance_map(sparse=True, cutoff=...) instead.",
+                DeprecationWarning, stacklevel=2)
+            if (selection is not None or complementary_selection is not None
+                    or sparse or cutoff is not None or by is not None
+                    or reduce != "min"):
+                raise ValueError(
+                    "distance_map(threshold=...) is the deprecated whole-Scene API "
+                    "and cannot be combined with other arguments")
             return (self.distance_map_dense() if threshold is None
                     else self.distance_map_sparse(threshold))
 
         if sparse and cutoff is None:
             raise ValueError("distance_map(sparse=True) requires a cutoff distance")
+        if cutoff is not None and not sparse:
+            raise ValueError("distance_map(cutoff=...) requires sparse=True; "
+                             "a dense map is never truncated")
         if reduce not in ("min", "max", "mean"):
             raise ValueError(f"reduce must be 'min', 'max' or 'mean', got {reduce!r}")
+        if by is not None and sparse and reduce != "min":
+            raise ValueError(
+                f"distance_map(by={by!r}, sparse=True) supports only reduce='min'; "
+                f"reduce={reduce!r} over the pairs within the cutoff is not the "
+                f"{reduce} of the group pair")
 
         self_map = complementary_selection is None
         A = self._resolve_selection(selection)
@@ -1301,77 +1331,86 @@ class Scene(pandas.DataFrame):
         if by is None:
             if not sparse:
                 return contacts.dense_atom_map(coordsA, coordsB, self_map)
-            return contacts.sparse_atom_map(coordsA, coordsB, cutoff, self_map)
+            return SparseMatrix(*contacts.sparse_atom_map(coordsA, coordsB, cutoff, self_map))
 
-        if by != "residue":
-            raise ValueError(f"by must be None or 'residue', got {by!r}")
-        resA = A["residue"].to_numpy()
-        resB = resA if self_map else B["residue"].to_numpy()
+        labelsA = A[by].to_numpy()
+        labelsB = labelsA if self_map else B[by].to_numpy()
         if not sparse:
-            return contacts.dense_residue_map(coordsA, coordsB, resA, resB, self_map, reduce)
-        return contacts.sparse_residue_map(coordsA, coordsB, resA, resB, cutoff, self_map, reduce)
+            return contacts.dense_residue_map(coordsA, coordsB, labelsA, labelsB,
+                                              self_map, reduce)
+        return SparseMatrix(*contacts.sparse_residue_map(
+            coordsA, coordsB, labelsA, labelsB, cutoff, self_map, reduce))
 
     def virtual_cb(self) -> "Scene":
-        """Return a Scene of one reconstructed Cβ pseudo-atom per residue.
+        """Return a Scene of one reconstructed Cb pseudo-atom per residue.
 
-        The Cβ position is built from the backbone ``N``, ``CA`` and ``C`` atoms
-        (ideal geometry), so glycines and residues lacking an explicit Cβ still
+        The Cb position is built from the backbone ``N``, ``CA`` and ``C`` atoms
+        (ideal geometry), so glycines and residues lacking an explicit Cb still
         get one.  Only residues having all three backbone atoms are included; the
         ``CA`` row is used as the template for every other column.
+
+        Residues are grouped per model, and where an atom name occurs more than
+        once in a residue (alternate locations) the first occurrence is used.
+        Any ``coordinate_frames`` are dropped, since the parent frames hold
+        backbone rather than Cb positions.
         """
         frame = pandas.DataFrame(self)
-        bb = frame[frame["name"].isin(["N", "CA", "C"])]
-        piv = bb.pivot_table(index="residue", columns="name",
-                             values=["x", "y", "z"], aggfunc="first").dropna()
-        if len(piv) == 0:
-            return Scene(frame.iloc[0:0].copy(), **self._meta)
-        N = piv[[("x", "N"), ("y", "N"), ("z", "N")]].to_numpy()
-        CA = piv[[("x", "CA"), ("y", "CA"), ("z", "CA")]].to_numpy()
-        C = piv[[("x", "C"), ("y", "C"), ("z", "C")]].to_numpy()
-        cb = contacts.cb_from_backbone(N, CA, C)
+        group_keys = ["model", "residue"] if "model" in frame.columns else ["residue"]
 
-        template = (frame[(frame["name"] == "CA") & (frame["residue"].isin(piv.index))]
-                    .drop_duplicates("residue").set_index("residue")
-                    .loc[piv.index].reset_index())
+        backbone = frame[frame["name"].isin(_BACKBONE_ATOMS)]
+        wanted = pandas.MultiIndex.from_product([["x", "y", "z"], sorted(_BACKBONE_ATOMS)],
+                                                names=[None, "name"])
+        pivot = (backbone.pivot_table(index=group_keys, columns="name",
+                                      values=["x", "y", "z"], aggfunc="first")
+                 .reindex(columns=wanted).dropna())
+
+        ca_rows = frame[frame["name"] == "CA"].drop_duplicates(group_keys)
+        ca_keys = pandas.MultiIndex.from_frame(ca_rows[group_keys])
+        if len(group_keys) == 1:
+            ca_keys = ca_keys.get_level_values(0)
+        complete = ca_keys.isin(pivot.index)
+
+        template = self._subset(pandas.Series(complete, index=ca_rows.index)
+                                .reindex(frame.index, fill_value=False))
+        template._meta.pop('coordinate_frames', None)
+        if len(template) == 0:
+            return template
+
+        pivot = pivot.reindex(index=ca_keys[complete])
+        N, CA, C = (pivot[[("x", n), ("y", n), ("z", n)]].to_numpy()
+                    for n in ("N", "CA", "C"))
+        cb = contacts.cb_from_backbone(N, CA, C)
         template["x"], template["y"], template["z"] = cb[:, 0], cb[:, 1], cb[:, 2]
         template["name"] = "CB"
-        return Scene(template, **self._meta)
+        return template
     
     def distance_map_dense(self) -> np.ndarray:
-        """
-        Dense n×n distance matrix.
-        Equivalent to your original, but via pdist/squareform for speed.
+        """Dense n×n distance matrix of every atom.
+
+        Equivalent to :meth:`distance_map` with no arguments.
         """
         coords = self.get_coordinates().to_numpy()
-        return distance.squareform(distance.pdist(coords))
-
+        return contacts.dense_atom_map(coords, coords, True)
 
     def distance_map_sparse(self, threshold: float) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Fast, memory-light "sparse" distances ≤ threshold.
+        """Distances ≤ ``threshold``, as an index-pair list.
+
+        Superseded by ``distance_map(sparse=True, cutoff=...)``, which returns a
+        :class:`~molscene.sparse.SparseMatrix` instead.
 
         Returns
         -------
         pairs : numpy.ndarray
-            ``(M, 2)`` array of index pairs ``[i, j]``.
+            ``(M, 2)`` array of index pairs ``[i, j]``, each unordered pair
+            appearing in both orders.
         dists : numpy.ndarray
             ``(M,)`` array of corresponding distances.
         """
         if threshold is None:
             raise ValueError("Must supply a threshold for sparse distance_map")
-
         coords = self.get_coordinates().to_numpy()
-        tree = cKDTree(coords)
-        pairs = tree.query_pairs(threshold, output_type='ndarray')  # shape (N, 2)
-
-        diffs = coords[pairs[:, 0]] - coords[pairs[:, 1]]
-        dists = np.linalg.norm(diffs, axis=1)
-
-        # symmetric pairs: stack (i,j) and (j,i) as rows
-        pairs_sym = np.vstack([pairs, pairs[:, ::-1]])  # shape (2N, 2)
-        dists_sym = np.tile(dists, 2)
-
-        return pairs_sym, dists_sym
+        row, col, data, _ = contacts.sparse_atom_map(coords, coords, threshold, True)
+        return np.column_stack([row, col]), data
 
     def get_center(self) -> pandas.Series:
         """

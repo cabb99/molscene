@@ -11,6 +11,8 @@ from .matching import (
     as_matching,
 )
 from . import contacts  # distance-map / virtual-Cβ geometry kernels
+from . import geometry, sparse
+from .sparse import SparseMatrix
 from . import parsers, backends  # register file-format parsers and object backends
 
 from ._version import __version__
@@ -24,6 +26,9 @@ __all__ = [
     "SequenceMatching",
     "as_matching",
     "contacts",
+    "geometry",
+    "sparse",
+    "SparseMatrix",
     "parsers",
     "backends",
     "__version__",

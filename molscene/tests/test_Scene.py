@@ -1,5 +1,5 @@
 import pytest
-from molscene import Scene
+from molscene import Scene, contacts
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -800,7 +800,7 @@ def test_distance_map():
     s = Scene(coords)
 
     # Dense distance map
-    dense = s.distance_map(threshold=None)
+    dense = s.distance_map()
     assert dense.shape == (3, 3)
     np.testing.assert_allclose(np.diag(dense), 0)
     np.testing.assert_allclose(dense[0, 1], 1)
@@ -831,86 +831,273 @@ def test_distance_map():
     np.testing.assert_allclose(sorted(dists), sorted(expected_dists))
 
 
-def _toy_protein():
-    """Three residues (chain A: 1,2; chain B: 1), each with N, CA, C, CB at
-    non-collinear backbone geometry."""
-    import pandas as pd
-    rng = np.random.default_rng(0)
-    rows = []
-    for chain, resid, base in [('A', 1, (0, 0, 0)), ('A', 2, (8, 0, 0)),
-                               ('B', 1, (0, 0, 15))]:
-        bx, by, bz = base
-        offs = {'N': (0.0, 1.0, 0.0), 'CA': (1.0, 0.0, 0.0),
-                'C': (2.0, 1.0, 0.2), 'CB': (1.0, -1.0, 0.5)}
-        resname = 'GLY' if (chain == 'A' and resid == 2) else 'ALA'
-        for name, (ox, oy, oz) in offs.items():
-            if name == 'CB' and resname == 'GLY':
-                continue  # glycine has no CB
-            rows.append(dict(name=name, resname=resname, chain=chain, resid=resid,
-                             x=bx + ox, y=by + oy, z=bz + oz))
-    return Scene(pd.DataFrame(rows))
+def test_distance_map_default_is_dense_all_atom(toy_protein):
+    """Feature: with no arguments the map is the dense all-atom matrix."""
+    dm = toy_protein.distance_map()
+    coords = toy_protein.get_coordinates().to_numpy()
+    assert dm.shape == (len(toy_protein), len(toy_protein))
+    np.testing.assert_allclose(
+        dm, np.linalg.norm(coords[:, None] - coords[None], axis=2))
 
 
-def test_distance_map_selection():
-    s = _toy_protein()
-    coords = s[['x', 'y', 'z']].to_numpy()
+def test_distance_map_mask_and_scene_selections_agree(toy_protein):
+    """Feature: a selection may be a mask, an index array or a sub-Scene."""
+    mask = toy_protein['name'] == 'CA'
+    expected = toy_protein.distance_map(mask)
+    assert expected.shape == (3, 3)
+    np.testing.assert_allclose(np.diag(expected), 0, atol=1e-9)
 
-    # default still equals the dense all-atom map (back-compat) ...
-    np.testing.assert_allclose(s.distance_map(), s.distance_map_dense())
-    # ... and the deprecated threshold kwarg still works.
-    np.testing.assert_allclose(s.distance_map(threshold=None), s.distance_map_dense())
+    labels = toy_protein.loc[mask].index
+    np.testing.assert_allclose(toy_protein.distance_map(labels), expected)
+    np.testing.assert_allclose(
+        toy_protein.distance_map(toy_protein._subset(mask)), expected)
 
-    # self-map of a mask selection
-    ca = s['name'] == 'CA'
-    dm_ca = s.distance_map(ca)
-    assert dm_ca.shape == (3, 3)
-    np.testing.assert_allclose(np.diag(dm_ca), 0, atol=1e-9)
 
-    # cross-map: chain A CA  vs  chain B CA
-    selA = (s['name'] == 'CA') & (s['chain'] == 'A')
-    selB = (s['name'] == 'CA') & (s['chain'] == 'B')
-    cross = s.distance_map(selA, selB)
-    a = s.loc[selA][['x', 'y', 'z']].to_numpy()
-    b = s.loc[selB][['x', 'y', 'z']].to_numpy()
+@pytest.mark.requires_molselect
+def test_distance_map_string_selection(toy_protein):
+    """Feature: a selection may be a molselect string."""
+    np.testing.assert_allclose(toy_protein.distance_map('name CA'),
+                               toy_protein.distance_map(toy_protein['name'] == 'CA'))
+
+
+def test_distance_map_cross_map_is_rectangular(toy_protein):
+    """Feature: two selections give the rectangular cross-map between them."""
+    selA = (toy_protein['name'] == 'CA') & (toy_protein['chain'] == 'A')
+    selB = (toy_protein['name'] == 'CA') & (toy_protein['chain'] == 'B')
+    cross = toy_protein.distance_map(selA, selB)
+    a = toy_protein.loc[selA, ['x', 'y', 'z']].to_numpy()
+    b = toy_protein.loc[selB, ['x', 'y', 'z']].to_numpy()
     assert cross.shape == (2, 1)
     np.testing.assert_allclose(cross, np.linalg.norm(a[:, None] - b[None], axis=2))
 
-    # sparse self-map agrees with the dense map and respects the cutoff
-    row, col, data, shape = s.distance_map(sparse=True, cutoff=5.0)
-    assert shape == (len(s), len(s))
-    dense = s.distance_map()
-    assert np.all(data <= 5.0 + 1e-9)
-    for r, c, d in zip(row, col, data):
-        assert abs(dense[r, c] - d) < 1e-9
 
-    # by='residue', reduce='min' equals a brute-force per-residue minimum
-    rm = s.distance_map(by='residue', reduce='min')
-    res = s['residue'].to_numpy()
+def test_distance_map_empty_selection_is_empty(toy_protein):
+    """Feature: a selection matching nothing yields an empty map, not a 1x1 one."""
+    nothing = toy_protein['name'] == 'ZZZ'
+    assert toy_protein.distance_map(nothing).shape == (0, 0)
+    assert toy_protein.distance_map(nothing, by='residue').shape == (0, 0)
+
+
+def test_distance_map_sparse_is_complete_and_bounded(toy_protein):
+    """Feature: the sparse map holds *every* pair within the cutoff, and no other."""
+    cutoff = 5.0
+    sm = toy_protein.distance_map(sparse=True, cutoff=cutoff)
+    dense = toy_protein.distance_map()
+
+    row, col, data, shape = sm            # unpacks like the underlying COO tuple
+    assert shape == (len(toy_protein), len(toy_protein))
+    assert np.all(data <= cutoff + 1e-9)
+
+    off_diagonal = ~np.eye(len(toy_protein), dtype=bool)
+    expected = (dense <= cutoff) & off_diagonal
+    assert len(sm) == np.count_nonzero(expected), "sparse map dropped pairs"
+    np.testing.assert_allclose(dense[row, col], data)
+
+    # densifying restores the dense map wherever a pair was stored
+    restored = sm.to_dense()
+    np.testing.assert_allclose(restored[expected], dense[expected])
+    assert np.all(np.isinf(restored[~expected & off_diagonal]))
+    np.testing.assert_allclose(np.diag(restored), 0)
+
+
+def test_distance_map_sparse_cross_map(toy_protein):
+    """Feature: sparse output also covers rectangular cross-maps."""
+    selA = toy_protein['chain'] == 'A'
+    selB = toy_protein['chain'] == 'B'
+    dense = toy_protein.distance_map(selA, selB)
+    sm = toy_protein.distance_map(selA, selB, sparse=True, cutoff=20.0)
+    assert sm.shape == dense.shape
+    assert len(sm) == np.count_nonzero(dense <= 20.0)
+    np.testing.assert_allclose(sm.to_dense()[dense <= 20.0], dense[dense <= 20.0])
+
+
+@pytest.mark.parametrize('reduce', ['min', 'max', 'mean'])
+def test_distance_map_by_group_reductions(toy_protein, reduce):
+    """Feature: `by` aggregates the atom map per group with min/max/mean."""
+    grouped = toy_protein.distance_map(by='residue', reduce=reduce)
+    coords = toy_protein.get_coordinates().to_numpy()
+    res = toy_protein['residue'].to_numpy()
     uniq = np.unique(res)
-    brute = np.array([[np.linalg.norm(coords[res == ri][:, None]
-                                      - coords[res == rj][None], axis=2).min()
+    brute = np.array([[getattr(np.linalg.norm(coords[res == ri][:, None]
+                                              - coords[res == rj][None], axis=2),
+                               reduce)()
                        for rj in uniq] for ri in uniq])
-    np.testing.assert_allclose(rm, brute)
-
-    # sparse residue-min matches the dense residue map within the cutoff
-    rr, cc, dd, ss = s.distance_map(by='residue', reduce='min', sparse=True, cutoff=50.0)
-    m = np.full(ss, np.inf)
-    for r, c, d in zip(rr, cc, dd):
-        m[r, c] = d
-    off_diag = ~np.eye(len(uniq), dtype=bool) & (brute <= 50.0)
-    np.testing.assert_allclose(m[off_diag], brute[off_diag])
+    np.testing.assert_allclose(grouped, brute)
 
 
-def test_virtual_cb():
-    s = _toy_protein()
-    vcb = s.virtual_cb()
-    # one Cβ per residue (including the glycine, which had no explicit CB)
+def test_distance_map_by_any_column(toy_protein):
+    """Feature: `by` accepts any column, not only 'residue'."""
+    by_chain = toy_protein.distance_map(by='chain')
+    coords = toy_protein.get_coordinates().to_numpy()
+    chains = toy_protein['chain'].to_numpy()
+    uniq = np.unique(chains)
+    brute = np.array([[np.linalg.norm(coords[chains == a][:, None]
+                                      - coords[chains == b][None], axis=2).min()
+                       for b in uniq] for a in uniq])
+    np.testing.assert_allclose(by_chain, brute)
+
+
+def test_distance_map_sparse_by_group_matches_dense(toy_protein):
+    """Feature: the sparse group map equals the dense one for pairs within cutoff."""
+    dense = toy_protein.distance_map(by='residue', reduce='min')
+    sm = toy_protein.distance_map(by='residue', reduce='min', sparse=True, cutoff=50.0)
+    off_diagonal = ~np.eye(dense.shape[0], dtype=bool)
+    reachable = off_diagonal & (dense <= 50.0)
+    assert len(sm) == np.count_nonzero(reachable)
+    np.testing.assert_allclose(sm.to_dense()[reachable], dense[reachable])
+
+
+def test_distance_map_cross_group_map(toy_protein):
+    """Feature: `by` combines with a cross-map between two selections."""
+    grouped = toy_protein.distance_map(toy_protein['chain'] == 'A',
+                                       toy_protein['chain'] == 'B', by='residue')
+    assert grouped.shape == (2, 1)
+
+
+def test_distance_map_rejects_contradictory_arguments(toy_protein):
+    """Feature: arguments that cannot be honoured raise instead of being ignored."""
+    with pytest.raises(ValueError, match='requires a cutoff'):
+        toy_protein.distance_map(sparse=True)
+    # a dense map is never truncated, so a cutoff would be silently dropped
+    with pytest.raises(ValueError, match='requires sparse=True'):
+        toy_protein.distance_map(cutoff=5.0)
+    with pytest.raises(ValueError, match='reduce must be'):
+        toy_protein.distance_map(by='residue', reduce='median')
+    # max/mean over the pairs inside the cutoff is not the max/mean of the group
+    for reduce in ('max', 'mean'):
+        with pytest.raises(ValueError, match="only reduce='min'"):
+            toy_protein.distance_map(by='residue', reduce=reduce,
+                                     sparse=True, cutoff=5.0)
+
+
+def test_distance_map_threshold_is_deprecated_but_works(toy_protein):
+    """Feature: the pre-selection threshold signature still works, with a warning."""
+    with pytest.deprecated_call():
+        np.testing.assert_allclose(toy_protein.distance_map(threshold=None),
+                                   toy_protein.distance_map_dense())
+    # the threshold used to be the first positional argument
+    with pytest.deprecated_call():
+        pairs, dists = toy_protein.distance_map(5.0)
+    assert pairs.shape[1] == 2 and np.all(dists <= 5.0)
+    # silently ignoring the other arguments would return a whole-Scene map
+    with pytest.raises(ValueError, match='cannot be combined'):
+        with pytest.deprecated_call():
+            toy_protein.distance_map(toy_protein['name'] == 'CA', threshold=5.0)
+
+
+def test_virtual_cb_reconstructs_ideal_geometry(toy_protein):
+    """Feature: virtual_cb places one Cβ per residue at the ideal bond length.
+
+    The backbone frame is orthonormal, so the Cα-Cβ bond comes out at exactly
+    ``|CB_OFFSET|`` whatever the backbone geometry, and Cβ must sit on the side
+    of the N/Cα/C plane that an L-amino acid puts it on.
+    """
+    vcb = toy_protein.virtual_cb()
     assert len(vcb) == 3
     assert set(vcb['name']) == {'CB'}
-    assert np.isfinite(vcb[['x', 'y', 'z']].to_numpy()).all()
-    # composable: CB_force-style contact map
-    cb_map = s.virtual_cb().distance_map()
-    assert cb_map.shape == (3, 3)
+
+    backbone = lambda name: toy_protein.loc[toy_protein['name'] == name,
+                                            ['x', 'y', 'z']].to_numpy()
+    ca, n, c = backbone('CA'), backbone('N'), backbone('C')
+    cb = vcb.get_coordinates().to_numpy()
+
+    ideal_bond = np.linalg.norm(contacts.CB_OFFSET)
+    np.testing.assert_allclose(np.linalg.norm(cb - ca, axis=1), ideal_bond)
+
+    chirality = np.einsum('ij,ij->i', np.cross(n - ca, c - ca), cb - ca)
+    assert np.all(chirality > 0), 'reconstructed Cβ has the wrong handedness'
+
+
+def test_virtual_cb_matches_crystal_cb(pdbfile):
+    """Feature: on a real structure the reconstruction reproduces the real Cβ.
+
+    This is the contract that pins the geometry constants down: ideal angles are
+    only meaningful against a real backbone.
+    """
+    s = Scene.from_pdb(pdbfile).select('protein')
+    vcb = s.virtual_cb()
+
+    explicit = s.select('name CB').drop_duplicates('residue')
+    reconstructed = vcb[vcb['residue'].isin(explicit['residue'])]
+    assert len(reconstructed) == len(explicit) > 50
+
+    offset = np.linalg.norm(reconstructed[['x', 'y', 'z']].to_numpy()
+                            - explicit[['x', 'y', 'z']].to_numpy(), axis=1)
+    assert np.median(offset) < 0.2, f'median Cβ deviation {np.median(offset):.3f} A'
+    assert np.percentile(offset, 95) < 0.5
+
+    # ideal tetrahedral-ish backbone angles at Cα
+    ca = s.select('name CA').drop_duplicates('residue')
+    ca = ca[ca['residue'].isin(explicit['residue'])][['x', 'y', 'z']].to_numpy()
+    n = s.select('name N').drop_duplicates('residue')
+    n = n[n['residue'].isin(explicit['residue'])][['x', 'y', 'z']].to_numpy()
+    cb = reconstructed[['x', 'y', 'z']].to_numpy()
+
+    u = (n - ca) / np.linalg.norm(n - ca, axis=1, keepdims=True)
+    v = (cb - ca) / np.linalg.norm(cb - ca, axis=1, keepdims=True)
+    angles = np.degrees(np.arccos(np.clip(np.einsum('ij,ij->i', u, v), -1, 1)))
+    assert 108 < np.median(angles) < 113, f'N-CA-CB angle {np.median(angles):.1f} deg'
+
+
+def test_virtual_cb_is_independent_of_coordinate_units(toy_protein):
+    """Feature: the reconstruction uses a normalized frame, so it is unit-safe.
+
+    A frame built from raw bond vectors mixes a length² cross product with length
+    terms, which misplaces Cβ by ~1 Å when coordinates are in nm rather than Å.
+    """
+    scaled = toy_protein.copy()
+    scaled[['x', 'y', 'z']] = scaled[['x', 'y', 'z']].to_numpy() / 10.0
+
+    def bond_vectors(scene):
+        cb = scene.virtual_cb().get_coordinates().to_numpy()
+        ca = scene.loc[scene['name'] == 'CA', ['x', 'y', 'z']].to_numpy()
+        return cb - ca
+
+    reference, rescaled = bond_vectors(toy_protein), bond_vectors(scaled)
+    # same bond length in whatever unit the coordinates are expressed in ...
+    np.testing.assert_allclose(np.linalg.norm(reference, axis=1),
+                               np.linalg.norm(rescaled, axis=1))
+    # ... pointing the same way
+    unit = lambda v: v / np.linalg.norm(v, axis=1, keepdims=True)
+    np.testing.assert_allclose(unit(reference), unit(rescaled))
+
+
+def test_virtual_cb_without_complete_backbone(toy_protein):
+    """Feature: residues lacking N/CA/C are excluded rather than raising."""
+    # no backbone at all
+    water = Scene(pd.DataFrame([dict(name='O', resname='HOH', chain='W', resid=1,
+                                     x=0.0, y=0.0, z=0.0)]))
+    assert len(water.virtual_cb()) == 0
+    # a Cα-only trace: the backbone frame cannot be built for any residue
+    ca_only = toy_protein._subset(toy_protein['name'] == 'CA')
+    assert len(ca_only.virtual_cb()) == 0
+    # mixed: only the complete residue survives
+    partial = toy_protein._subset((toy_protein['chain'] == 'A')
+                                  | (toy_protein['name'] == 'CA'))
+    assert len(partial.virtual_cb()) == 2
+
+
+def test_virtual_cb_keeps_metadata_consistent(toy_protein):
+    """Feature: the returned Scene is self-consistent, not a view on the parent.
+
+    A one-bead-per-residue Scene must not keep index-aligned metadata describing
+    the parent's atoms, or every frame-aware operation on it breaks.
+    """
+    toy_protein.set_coordinate_frames(
+        np.stack([toy_protein.get_coordinates().to_numpy()] * 3))
+    vcb = toy_protein.virtual_cb()
+    assert len(vcb) == 3
+    # the parent's frames hold backbone, not Cβ, positions, so they are dropped
+    assert 'coordinate_frames' not in vcb._meta
+    np.testing.assert_allclose(vcb.frames[0].get_coordinates().to_numpy(),
+                               vcb.get_coordinates().to_numpy())
+    # and the result stays usable
+    assert vcb.distance_map().shape == (3, 3)
+
+
+def test_virtual_cb_is_composable(toy_protein):
+    """Feature: virtual_cb returns a Scene, so maps compose on it."""
+    assert toy_protein.virtual_cb().distance_map().shape == (3, 3)
 
 
 def test_prody_bridge_roundtrip():

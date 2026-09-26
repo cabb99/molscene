@@ -41,3 +41,15 @@ Geometry helpers
 
 .. automodule:: molscene.geometry
    :members:
+
+Contact maps
+------------
+
+.. automodule:: molscene.contacts
+   :members:
+
+Sparse maps
+-----------
+
+.. automodule:: molscene.sparse
+   :members:

@@ -97,36 +97,98 @@ def kabsch(mobile: np.ndarray, reference: np.ndarray) -> Tuple[np.ndarray, np.nd
 
 def apply_transform(coords: np.ndarray, R: np.ndarray, t: np.ndarray = None) -> np.ndarray:
     """
-    Apply a rigid-body transformation to a set of coordinates.
+    Apply a rigid-body transformation ``x' = R x + t`` to a set of coordinates.
 
     Parameters
     ----------
     coords : ndarray
         Either a single frame of shape ``(N, 3)`` or a stack of frames of
         shape ``(F, N, 3)``.
-    R : ndarray, shape (3, 3)
-        Rotation matrix.
-    t : ndarray, shape (3,), optional
-        Translation vector. Defaults to zero.
+    R : ndarray, shape (3, 3) or (F, 3, 3)
+        Rotation matrix, or one rotation per frame. Per-frame rotations applied
+        to a single ``(N, 3)`` frame give one transformed copy per rotation.
+    t : ndarray, shape (3,) or (F, 3), optional
+        Translation vector, or one per frame. Defaults to zero.
 
     Returns
     -------
     ndarray
-        Transformed coordinates with the same shape as ``coords``.
+        Transformed coordinates, ``(N, 3)`` or ``(F, N, 3)``. Floating-point
+        input keeps its precision, so ``float32`` coordinates stay ``float32``.
     """
-    R = np.asarray(R, dtype=float)
-    if R.shape != (3, 3):
-        raise ValueError(f"R must have shape (3, 3), got {R.shape}")
-    if t is None:
-        t = np.zeros(3)
-    t = np.asarray(t, dtype=float).reshape(3)
+    coords = np.asarray(coords)
+    if coords.dtype.kind != "f":
+        coords = coords.astype(float)
+    if coords.ndim not in (2, 3) or coords.shape[-1] != 3:
+        raise ValueError(f"coords must have shape (N, 3) or (F, N, 3), got {coords.shape}")
+    R = np.asarray(R, dtype=coords.dtype)
+    if R.ndim not in (2, 3) or R.shape[-2:] != (3, 3):
+        raise ValueError(f"R must have shape (3, 3) or (F, 3, 3), got {R.shape}")
+    t = np.zeros(3, dtype=coords.dtype) if t is None else np.asarray(t, dtype=coords.dtype)
+    if t.shape not in ((3,), R.shape[:-2] + (3,)):
+        raise ValueError(f"t must have shape (3,) or match R's frames, got {t.shape}")
+    return np.matmul(coords, np.swapaxes(R, -1, -2)) + t[..., None, :]
 
-    coords = np.asarray(coords, dtype=float)
-    if coords.ndim == 2:
-        return coords @ R.T + t
-    if coords.ndim == 3:
-        return coords @ R.T + t
-    raise ValueError(f"coords must have shape (N, 3) or (F, N, 3), got {coords.shape}")
+
+# ---------------------------------------------------------------------------
+# Local frames and pseudo-atom placement
+# ---------------------------------------------------------------------------
+
+def local_frame(origin: np.ndarray, primary: np.ndarray,
+                secondary: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Build a right-handed orthonormal frame from three points.
+
+    The basis columns are ``e1`` along ``primary - origin``, ``e2`` normal to the
+    plane of the three points (along ``(secondary - origin) x e1``), and
+    ``e3 = e1 x e2``, which lies in that plane on the side of ``secondary``. So
+    ``origin + basis @ v`` maps local coordinates ``v`` into the structure, and
+    ``(x - origin) @ basis`` maps structure coordinates ``x`` back.
+
+    The basis is orthonormal, so coefficients expressed in it are true lengths and
+    a placement built on it is independent of the coordinate units.  Frames built
+    from raw (unnormalized) bond vectors do not have this property — their
+    cross-product axis scales as length squared, so coefficients fitted in Ångström
+    silently misplace atoms when the coordinates are in nanometres.
+
+    Parameters
+    ----------
+    origin, primary, secondary : numpy.ndarray
+        ``(..., 3)`` arrays of the frame origin and its two reference points;
+        leading axes (residues, frames) broadcast.
+
+    Returns
+    -------
+    basis : numpy.ndarray
+        ``(..., 3, 3)`` array whose columns are the frame axes.
+    origin : numpy.ndarray
+        ``(..., 3)`` array of frame origins.
+
+    Raises
+    ------
+    ValueError
+        If the three points are not finite, coincide, or are collinear.
+    """
+    def unit(v):
+        norm = np.linalg.norm(v, axis=-1, keepdims=True)
+        if not np.isfinite(norm).all() or np.any(norm <= 1e-12):
+            raise ValueError("frame points must be finite, distinct and noncollinear")
+        return v / norm
+
+    origin = np.asarray(origin, dtype=float)
+    e1 = unit(np.asarray(primary, dtype=float) - origin)
+    e2 = unit(np.cross(np.asarray(secondary, dtype=float) - origin, e1))
+    return np.stack([e1, e2, np.cross(e1, e2)], axis=-1), origin
+
+
+def place_from_frame(basis: np.ndarray, origin: np.ndarray,
+                     offset) -> np.ndarray:
+    """Place a point at ``origin + basis @ offset``.
+
+    ``offset`` is either a single ``(3,)`` coefficient triple applied to every
+    frame, or an ``(..., 3)`` array of per-frame coefficients.
+    """
+    offset = np.asarray(offset, dtype=float)
+    return np.einsum('...ij,...j->...i', basis, offset) + origin
 
 
 # ---------------------------------------------------------------------------
